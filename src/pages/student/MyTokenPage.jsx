@@ -60,6 +60,7 @@ const MyTokenPage = () => {
     currentlyServing,
     peopleAhead,
     estimatedWait,
+    predictionSource,
     counter,
     joinedAt,
     progressQueue = []
@@ -138,10 +139,17 @@ const MyTokenPage = () => {
             </div>
             
             <div className="bg-[#F8FBFA] p-4 rounded-xl border border-[#E5E9E7]">
-              <p className="text-xs text-[#667085] mb-1 flex items-center gap-1">
-                <Clock size={14} className="text-[#168C82]" /> Est. Wait Time
-              </p>
-              <span className="text-2xl font-bold text-[#168C82]">{estimatedWait} min</span>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-[#667085] flex items-center gap-1">
+                  <Clock size={14} className="text-[#168C82]" /> Est. Wait
+                </p>
+                <span className="text-[10px] font-bold text-[#168C82] bg-[#EEF9F7] px-1.5 py-0.5 rounded border border-[#168C82]/20">
+                  {predictionSource === 'ml' ? 'AI/ML' : 'ETA'}
+                </span>
+              </div>
+              <span className="text-2xl font-bold text-[#168C82]">
+                {status === 'called' || status === 'in_service' ? 'Now' : `${estimatedWait} min`}
+              </span>
             </div>
             
             <div className="bg-[#F8FBFA] p-4 rounded-xl border border-[#E5E9E7]">

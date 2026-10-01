@@ -107,8 +107,15 @@ const StudentDashboard = () => {
                 <p className="text-lg font-bold text-[#111827]">{computedData.peopleAhead}</p>
               </div>
               <div className="bg-[#F8FBFA] p-3.5 rounded-xl border border-[#E5E9E7]">
-                <p className="text-xs text-[#667085] mb-1">Estimated Wait</p>
-                <p className="text-lg font-bold text-[#168C82]">{computedData.estimatedWait} min</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs text-[#667085]">Estimated Wait</p>
+                  <span className="text-[9px] font-bold text-[#168C82] bg-[#EEF9F7] px-1 py-0.5 rounded border border-[#168C82]/20">
+                    {computedData.predictionSource === 'ml' ? 'AI/ML' : 'ETA'}
+                  </span>
+                </div>
+                <p className="text-lg font-bold text-[#168C82]">
+                  {computedData.status === 'called' || computedData.status === 'in_service' ? 'Now' : `${computedData.estimatedWait} min`}
+                </p>
               </div>
               <div className="bg-[#F8FBFA] p-3.5 rounded-xl border border-[#E5E9E7]">
                 <p className="text-xs text-[#667085] mb-1">Assigned Counter</p>

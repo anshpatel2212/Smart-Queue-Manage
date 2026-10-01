@@ -16,6 +16,7 @@ import {
 } from '../firebase/firestore';
 import { getService } from './serviceService';
 import { calculateEstimatedWaitTime } from '../utils/queueCalculations';
+import { predictWaitingTime } from './mlService';
 import { createNotification } from './notificationService';
 import { createHistoryRecord } from './historyService';
 
@@ -186,6 +187,29 @@ export const joinQueue = async ({ user, serviceId }) => {
   const queueRef = doc(db, 'queues', serviceId);
   const tokenDocRef = doc(collection(db, 'tokens'));
 
+  // 3. Read current waiting tokens to calculate position & ML ETA accurately
+  const tokensSnapshot = await getDocs(
+    query(
+      collection(db, 'tokens'),
+      where('serviceId', '==', serviceId),
+      where('status', '==', 'waiting')
+    )
+  );
+  const peopleAhead = tokensSnapshot.size;
+
+  // 4. ML wait-time prediction using trained model with deterministic fallback
+  const mlResult = await predictWaitingTime({
+    peopleAhead,
+    queueLength: peopleAhead + 1,
+    activeCounters: service.activeCounters || 1,
+    averageServiceTime: service.averageServiceTime || 5,
+    serviceType: service.departmentName || service.departmentId || service.name,
+    serviceName: service.name,
+  });
+
+  const estimatedWait = mlResult.estimatedWait;
+  const predictionSource = mlResult.predictionSource || 'ml';
+
   let generatedTokenData = null;
 
   await runTransaction(db, async (transaction) => {
@@ -204,21 +228,6 @@ export const joinQueue = async ({ user, serviceId }) => {
 
     const tokenNumber = `${prefix}-${String(nextSequence).padStart(3, '0')}`;
 
-    // Read waiting tokens to calculate position & ETA accurately
-    const tokensSnapshot = await getDocs(
-      query(
-        collection(db, 'tokens'),
-        where('serviceId', '==', serviceId),
-        where('status', '==', 'waiting')
-      )
-    );
-    const peopleAhead = tokensSnapshot.size;
-    const estimatedWait = calculateEstimatedWaitTime(
-      peopleAhead,
-      service.averageServiceTime || 5,
-      activeCounters
-    );
-
     const tokenPayload = {
       tokenId: tokenDocRef.id,
       tokenNumber,
@@ -236,6 +245,7 @@ export const joinQueue = async ({ user, serviceId }) => {
       position: peopleAhead + 1,
       peopleAhead,
       estimatedWait,
+      predictionSource, // 'ml' | 'fallback'
       counterNumber: null,
       calledByStaffId: null,
       createdAt: serverTimestamp(),
@@ -317,7 +327,67 @@ export const cancelToken = async (tokenId, userId) => {
     type: 'alert',
   });
 
+  // Recalculate ML wait times for remaining waiting tokens
+  if (tokenData.serviceId) {
+    recalculateQueuePredictions(tokenData.serviceId).catch(err =>
+      console.warn('Queue recalculation failed:', err)
+    );
+  }
+
   return true;
+};
+
+/**
+ * Recalculates position, people ahead, and ML estimated wait time for all waiting tokens in a service.
+ */
+export const recalculateQueuePredictions = async (serviceId) => {
+  if (!serviceId) return;
+  try {
+    const service = await getService(serviceId);
+    if (!service) return;
+
+    // Fetch all currently waiting tokens for this service
+    const q = query(
+      collection(db, 'tokens'),
+      where('serviceId', '==', serviceId),
+      where('status', '==', 'waiting')
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return;
+
+    const waitingTokens = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Sort in memory to avoid composite index requirement
+    waitingTokens.sort((a, b) => (a.tokenSequence || 0) - (b.tokenSequence || 0));
+
+    const totalWaiting = waitingTokens.length;
+
+    await Promise.all(
+      waitingTokens.map(async (token, i) => {
+        const peopleAhead = i;
+        const position = i + 1;
+
+        const mlResult = await predictWaitingTime({
+          peopleAhead,
+          queueLength: totalWaiting,
+          activeCounters: service.activeCounters || 1,
+          averageServiceTime: service.averageServiceTime || 5,
+          serviceType: service.departmentName || service.departmentId || service.name,
+          serviceName: service.name,
+        });
+
+        const tokenRef = doc(db, 'tokens', token.id);
+        return updateDoc(tokenRef, {
+          position,
+          peopleAhead,
+          estimatedWait: mlResult.estimatedWait,
+          predictionSource: mlResult.predictionSource || 'ml',
+          updatedAt: serverTimestamp(),
+        });
+      })
+    );
+  } catch (err) {
+    console.warn(`Error recalculating queue predictions for service ${serviceId}:`, err);
+  }
 };
 
 export const callNextToken = async (serviceId, staffUser, counterNumber = 1) => {
@@ -363,7 +433,12 @@ export const callNextToken = async (serviceId, staffUser, counterNumber = 1) => 
     type: 'alert',
   });
 
-  return { id: nextDoc.id, ...nextToken, status: 'called', counterNumber };
+  // Recalculate ML predictions for remaining waiting tokens asynchronously
+  recalculateQueuePredictions(serviceId).catch(err => 
+    console.warn('Queue recalculation failed:', err)
+  );
+
+  return { id: nextToken.id, ...nextToken, status: 'called', counterNumber };
 };
 
 export const startService = async (tokenId, staffUser, counterNumber = 1) => {
@@ -434,6 +509,13 @@ export const completeService = async (tokenId, staffUser) => {
     type: 'success',
   });
 
+  // Recalculate waiting tokens ML predictions
+  if (tokenData.serviceId) {
+    recalculateQueuePredictions(tokenData.serviceId).catch(err => 
+      console.warn('Queue recalculation failed:', err)
+    );
+  }
+
   return true;
 };
 
@@ -463,6 +545,12 @@ export const skipToken = async (tokenId, staffUser, reason = 'No show') => {
     message: `Your token ${tokenData.tokenNumber} was skipped (${reason}). Please visit counter staff if you are present.`,
     type: 'alert',
   });
+
+  if (tokenData.serviceId) {
+    recalculateQueuePredictions(tokenData.serviceId).catch(err => 
+      console.warn('Queue recalculation failed:', err)
+    );
+  }
 
   return true;
 };
@@ -496,6 +584,12 @@ export const staffCancelToken = async (tokenId, staffUser, reason = 'Cancelled b
     message: `Your token ${tokenData.tokenNumber} for ${tokenData.serviceName} was cancelled by staff (${reason}).`,
     type: 'alert',
   });
+
+  if (tokenData.serviceId) {
+    recalculateQueuePredictions(tokenData.serviceId).catch(err => 
+      console.warn('Queue recalculation failed:', err)
+    );
+  }
 
   return true;
 };

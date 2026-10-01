@@ -248,7 +248,16 @@ const AdminDashboard = () => {
                     </td>
                     <td className="p-4 text-[#667085]">{token.serviceName || 'General Service'}</td>
                     <td className="p-4 font-semibold text-[#172033]">#{token.position || 1}</td>
-                    <td className="p-4 text-[#667085]">{token.estimatedWait !== undefined ? `${token.estimatedWait} min` : '~10 min'}</td>
+                    <td className="p-4 text-[#667085]">
+                      <span className="flex items-center gap-1.5">
+                        <span>{token.estimatedWait !== undefined ? `${token.estimatedWait} min` : '~10 min'}</span>
+                        {token.predictionSource === 'ml' && (
+                          <span className="text-[9px] font-semibold text-[#168C82] bg-[#EEF9F7] px-1 py-0.5 rounded border border-[#168C82]/20">
+                            ML
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="p-4 font-medium text-[#172033]">
                       {token.counterNumber ? `Counter ${token.counterNumber}` : <span className="text-[#667085] text-xs">Unassigned</span>}
                     </td>

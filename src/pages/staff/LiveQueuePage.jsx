@@ -263,7 +263,16 @@ const LiveQueuePage = () => {
                     </span>
                   </td>
                   <td className="p-4 text-[#667085]">
-                    {item.status === 'waiting' ? `~${item.estimatedWait || 5} min` : 'Now'}
+                    {item.status === 'waiting' ? (
+                      <span className="flex items-center gap-1.5">
+                        <span>~{item.estimatedWait !== undefined ? item.estimatedWait : 5} min</span>
+                        {item.predictionSource === 'ml' && (
+                          <span className="text-[9px] font-semibold text-[#168C82] bg-[#EEF9F7] px-1 py-0.5 rounded border border-[#168C82]/20">
+                            ML
+                          </span>
+                        )}
+                      </span>
+                    ) : 'Now'}
                   </td>
                   <td className="p-4 text-[#667085]">
                     {item.counterNumber ? `Counter ${item.counterNumber}` : '—'}

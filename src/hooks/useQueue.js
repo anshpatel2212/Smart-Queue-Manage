@@ -92,10 +92,19 @@ export const useQueue = () => {
       ? 1 
       : peopleAhead + 1;
 
-    // Calculate estimated wait time
+    // Estimated wait time: prioritize Firestore ML prediction, fallback to calculation
     const avgTime = serviceDetails?.averageServiceTime || 5;
     const counters = queueMetadata?.activeCounters || serviceDetails?.activeCounters || 1;
-    const estimatedWait = calculateEstimatedWaitTime(peopleAhead, avgTime, counters);
+    const calculatedWait = calculateEstimatedWaitTime(peopleAhead, avgTime, counters);
+
+    let estimatedWait = calculatedWait;
+    if (activeToken.status === 'called' || activeToken.status === 'in_service') {
+      estimatedWait = 0;
+    } else if (typeof activeToken.estimatedWait === 'number') {
+      estimatedWait = activeToken.estimatedWait;
+    }
+
+    const predictionSource = activeToken.predictionSource || 'ml';
 
     // Queue progress pills sequence (e.g. up to 5 tokens culminating in user's token)
     let progressQueue = [];
@@ -119,6 +128,7 @@ export const useQueue = () => {
       peopleAhead,
       position,
       estimatedWait,
+      predictionSource,
       joinedAt: activeToken.createdAt?.toDate ? activeToken.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent',
       progressQueue,
       tokenId: activeToken.id || activeToken.tokenId,
