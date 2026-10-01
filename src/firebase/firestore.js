@@ -1,0 +1,20 @@
+export { db } from './config';
+export {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  addDoc,
+  query,
+  where,
+  orderBy,
+  limit,
+  onSnapshot,
+  serverTimestamp,
+  increment,
+  runTransaction,
+  writeBatch,
+} from 'firebase/firestore';
