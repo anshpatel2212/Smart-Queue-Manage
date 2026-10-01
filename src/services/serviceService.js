@@ -18,68 +18,15 @@ import { INITIAL_DEPARTMENTS, INITIAL_SERVICES } from './seedService';
  * Service to manage Campus Departments & Services in Firestore
  */
 
-export const getDepartments = async () => {
-  try {
-    const snap = await getDocs(collection(db, 'departments'));
-    if (!snap.empty) {
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    }
-    return INITIAL_DEPARTMENTS;
-  } catch (error) {
-    console.warn('Error fetching departments, using fallback:', error);
-    return INITIAL_DEPARTMENTS;
-  }
-};
-
-export const getDepartment = async (id) => {
-  const docRef = doc(db, 'departments', id);
-  const snap = await getDoc(docRef);
-  if (snap.exists()) {
-    return { id: snap.id, ...snap.data() };
-  }
-  return INITIAL_DEPARTMENTS.find(d => d.id === id) || null;
-};
-
-export const createDepartment = async (data) => {
-  const id = (data.id || data.name.toLowerCase().replace(/[^a-z0-9]/g, '_')).trim();
-  const deptRef = doc(db, 'departments', id);
-  const existing = await getDoc(deptRef);
-  if (existing.exists()) {
-    throw new Error('A department with this identifier already exists.');
-  }
-
-  const newDept = {
-    id,
-    name: data.name.trim(),
-    description: data.description || '',
-    status: data.status || 'active',
-    activeCounters: parseInt(data.activeCounters, 10) || 1,
-    totalCounters: parseInt(data.totalCounters, 10) || 1,
-    icon: data.icon || 'Building',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-
-  await setDoc(deptRef, newDept);
-  return newDept;
-};
-
-export const updateDepartment = async (id, updateData) => {
-  const deptRef = doc(db, 'departments', id);
-  const safeData = { ...updateData };
-  delete safeData.id;
-  delete safeData.createdAt;
-  safeData.updatedAt = serverTimestamp();
-
-  await updateDoc(deptRef, safeData);
-  return getDepartment(id);
-};
-
-export const deleteDepartment = async (id) => {
-  const deptRef = doc(db, 'departments', id);
-  await deleteDoc(deptRef);
-  return true;
-};
+export {
+  getDepartments,
+  getDepartment,
+  createDepartment,
+  updateDepartment,
+  deleteDepartment,
+  subscribeDepartments,
+  toggleDepartmentStatus
+} from './departmentService';
 
 export const getServices = async (departmentId = null) => {
   try {
@@ -200,20 +147,6 @@ export const subscribeServices = (callback) => {
     (err) => {
       console.warn('Realtime services subscription error:', err);
       callback(INITIAL_SERVICES);
-    }
-  );
-};
-
-export const subscribeDepartments = (callback) => {
-  return onSnapshot(
-    collection(db, 'departments'),
-    (snap) => {
-      const depts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      callback(depts.length > 0 ? depts : INITIAL_DEPARTMENTS);
-    },
-    (err) => {
-      console.warn('Realtime departments subscription error:', err);
-      callback(INITIAL_DEPARTMENTS);
     }
   );
 };

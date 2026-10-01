@@ -28,11 +28,12 @@ export const getActiveTokensForService = async (serviceId) => {
   const q = query(
     collection(db, 'tokens'),
     where('serviceId', '==', serviceId),
-    where('status', 'in', ['waiting', 'called', 'in_service']),
-    orderBy('tokenSequence', 'asc')
+    where('status', 'in', ['waiting', 'called', 'in_service'])
   );
   const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  items.sort((a, b) => (a.tokenSequence || 0) - (b.tokenSequence || 0));
+  return items;
 };
 
 export const getUserActiveToken = async (userId) => {
@@ -88,14 +89,14 @@ export const subscribeServiceTokens = (serviceId, callback) => {
   const q = query(
     collection(db, 'tokens'),
     where('serviceId', '==', serviceId),
-    where('status', 'in', ['waiting', 'called', 'in_service']),
-    orderBy('tokenSequence', 'asc')
+    where('status', 'in', ['waiting', 'called', 'in_service'])
   );
 
   return onSnapshot(
     q,
     (snap) => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => (a.tokenSequence || 0) - (b.tokenSequence || 0));
       callback(items);
     },
     (err) => {
@@ -109,18 +110,46 @@ export const subscribeAllActiveTokens = (callback) => {
   const q = query(
     collection(db, 'tokens'),
     where('status', 'in', ['waiting', 'called', 'in_service']),
-    orderBy('createdAt', 'desc'),
-    limit(100)
+    limit(150)
   );
 
   return onSnapshot(
     q,
     (snap) => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+        return timeB - timeA;
+      });
       callback(items);
     },
     (err) => {
       console.warn('All active tokens snapshot error:', err);
+      callback([]);
+    }
+  );
+};
+
+export const subscribeAllTokens = (callback, limitCount = 200) => {
+  const q = query(
+    collection(db, 'tokens'),
+    limit(limitCount)
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+        return timeB - timeA;
+      });
+      callback(items);
+    },
+    (err) => {
+      console.warn('All tokens snapshot error:', err);
       callback([]);
     }
   );
@@ -298,9 +327,7 @@ export const callNextToken = async (serviceId, staffUser, counterNumber = 1) => 
   const q = query(
     collection(db, 'tokens'),
     where('serviceId', '==', serviceId),
-    where('status', '==', 'waiting'),
-    orderBy('tokenSequence', 'asc'),
-    limit(1)
+    where('status', '==', 'waiting')
   );
 
   const snap = await getDocs(q);
@@ -308,9 +335,10 @@ export const callNextToken = async (serviceId, staffUser, counterNumber = 1) => 
     return null;
   }
 
-  const nextDoc = snap.docs[0];
-  const nextToken = nextDoc.data();
-  const tokenRef = doc(db, 'tokens', nextDoc.id);
+  const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  docs.sort((a, b) => (a.tokenSequence || 0) - (b.tokenSequence || 0));
+  const nextToken = docs[0];
+  const tokenRef = doc(db, 'tokens', nextToken.id);
 
   await updateDoc(tokenRef, {
     status: 'called',

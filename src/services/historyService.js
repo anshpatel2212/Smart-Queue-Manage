@@ -52,11 +52,16 @@ export const getUserHistory = async (userId) => {
     const q = query(
       collection(db, 'queueHistory'),
       where('userId', '==', userId),
-      orderBy('completedAt', 'desc'),
       limit(50)
     );
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    items.sort((a, b) => {
+      const timeA = a.completedAt?.toMillis ? a.completedAt.toMillis() : (a.completedAt?.seconds ? a.completedAt.seconds * 1000 : 0);
+      const timeB = b.completedAt?.toMillis ? b.completedAt.toMillis() : (b.completedAt?.seconds ? b.completedAt.seconds * 1000 : 0);
+      return timeB - timeA;
+    });
+    return items;
   } catch (error) {
     console.warn('Error fetching user queue history:', error);
     return [];
@@ -67,11 +72,16 @@ export const getCampusHistory = async (limitCount = 100) => {
   try {
     const q = query(
       collection(db, 'queueHistory'),
-      orderBy('completedAt', 'desc'),
       limit(limitCount)
     );
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    items.sort((a, b) => {
+      const timeA = a.completedAt?.toMillis ? a.completedAt.toMillis() : (a.completedAt?.seconds ? a.completedAt.seconds * 1000 : 0);
+      const timeB = b.completedAt?.toMillis ? b.completedAt.toMillis() : (b.completedAt?.seconds ? b.completedAt.seconds * 1000 : 0);
+      return timeB - timeA;
+    });
+    return items;
   } catch (error) {
     console.warn('Error fetching campus queue history:', error);
     return [];
@@ -83,11 +93,16 @@ export const getStaffHistory = async (staffId, limitCount = 50) => {
     const q = query(
       collection(db, 'queueHistory'),
       where('staffId', '==', staffId),
-      orderBy('completedAt', 'desc'),
       limit(limitCount)
     );
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    items.sort((a, b) => {
+      const timeA = a.completedAt?.toMillis ? a.completedAt.toMillis() : (a.completedAt?.seconds ? a.completedAt.seconds * 1000 : 0);
+      const timeB = b.completedAt?.toMillis ? b.completedAt.toMillis() : (b.completedAt?.seconds ? b.completedAt.seconds * 1000 : 0);
+      return timeB - timeA;
+    });
+    return items;
   } catch (error) {
     console.warn('Error fetching staff queue history:', error);
     return [];

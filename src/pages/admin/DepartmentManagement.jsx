@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Users, Settings, X, Edit2, Trash2, Loader2 } from 'lucide-react';
-import { 
-  subscribeDepartments, 
-  createDepartment, 
-  updateDepartment, 
-  deleteDepartment 
-} from '../../services/serviceService';
+import { Plus, Users, Settings, X, Edit2, Trash2, Loader2, Power } from 'lucide-react';
+import { useAdminDepartments } from '../../hooks/useAdminDepartments';
 
 const DepartmentManagement = () => {
-  const [departments, setDepartments] = useState([]);
+  const { 
+    departments, 
+    loading: fetching, 
+    addDepartment, 
+    editDepartment, 
+    removeDepartment, 
+    toggleStatus 
+  } = useAdminDepartments();
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDept, setEditingDept] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -22,13 +25,6 @@ const DepartmentManagement = () => {
     totalCounters: 2,
     status: 'active',
   });
-
-  useEffect(() => {
-    const unsub = subscribeDepartments((items) => {
-      setDepartments(items);
-    });
-    return () => unsub();
-  }, []);
 
   const showMsg = (msg) => {
     setFeedback(msg);
@@ -72,15 +68,15 @@ const DepartmentManagement = () => {
     setLoading(true);
     try {
       if (editingDept) {
-        await updateDepartment(editingDept.id, formData);
+        await editDepartment(editingDept.id, formData);
         showMsg(`Department "${formData.name}" updated successfully.`);
       } else {
-        await createDepartment(formData);
+        await addDepartment(formData);
         showMsg(`Department "${formData.name}" created successfully.`);
       }
       closeModal();
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      alert(err.message || "Failed to save department. You don't have permission.");
     } finally {
       setLoading(false);
     }
@@ -89,10 +85,19 @@ const DepartmentManagement = () => {
   const handleDelete = async (id, name) => {
     if (!window.confirm(`Are you sure you want to delete the department "${name}"?`)) return;
     try {
-      await deleteDepartment(id);
+      await removeDepartment(id);
       showMsg(`Department "${name}" deleted.`);
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      alert(err.message || "Failed to delete department. You don't have permission.");
+    }
+  };
+
+  const handleToggleStatus = async (dept) => {
+    try {
+      await toggleStatus(dept.id, dept.status);
+      showMsg(`Department status updated.`);
+    } catch (err) {
+      alert(err.message || 'Failed to update department status.');
     }
   };
 
@@ -106,7 +111,7 @@ const DepartmentManagement = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-[#172033]">Department Management</h1>
-          <p className="text-[#667085] mt-1">Configure campus departments, counters, and capacity</p>
+          <p className="text-[#667085] mt-1">Configure campus departments, counters, and capacity in real time</p>
         </div>
         <button 
           onClick={() => openModal()}
@@ -123,55 +128,74 @@ const DepartmentManagement = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {departments.map((dept) => (
-          <div key={dept.id} className="bg-white border border-[#E5E9E7] rounded-xl shadow-sm overflow-hidden flex flex-col hover:border-[#168C82]/50 transition-colors">
-            <div className="p-6 flex-1">
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="text-xl font-bold text-[#172033]">{dept.name}</h3>
-                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${dept.status === 'active' || dept.status === 'Active' ? 'bg-[#EEF9F7] text-[#1B9A72]' : 'bg-gray-100 text-[#667085]'}`}>
-                  {(dept.status || 'active').toUpperCase()}
-                </span>
-              </div>
-              <p className="text-[#667085] text-sm mb-6 line-clamp-2">{dept.description || 'General university department services'}</p>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-[#F8FBFA] p-3 rounded-lg border border-[#E5E9E7]">
-                  <div className="flex items-center gap-2 text-[#667085] mb-1">
-                    <Settings className="w-4 h-4 text-[#168C82]" />
-                    <span className="text-xs font-medium uppercase tracking-wider">Counters</span>
+      {fetching && departments.length === 0 ? (
+        <div className="p-12 text-center text-[#667085] flex flex-col items-center">
+          <Loader2 className="w-8 h-8 animate-spin text-[#168C82] mb-2" />
+          <p>Loading departments from Firestore...</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {departments.map((dept) => {
+            const isActive = dept.status === 'active' || dept.status === 'Active';
+            return (
+              <div key={dept.id} className="bg-white border border-[#E5E9E7] rounded-xl shadow-sm overflow-hidden flex flex-col hover:border-[#168C82]/50 transition-colors">
+                <div className="p-6 flex-1">
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="text-xl font-bold text-[#172033]">{dept.name}</h3>
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isActive ? 'bg-[#EEF9F7] text-[#1B9A72]' : 'bg-gray-100 text-[#667085]'}`}>
+                      {(dept.status || 'active').toUpperCase()}
+                    </span>
                   </div>
-                  <p className="font-bold text-[#172033] text-lg">
-                    {dept.activeCounters || 1} <span className="text-sm font-normal text-[#667085]">/ {dept.totalCounters || 2}</span>
-                  </p>
-                </div>
-                <div className="bg-[#F8FBFA] p-3 rounded-lg border border-[#E5E9E7]">
-                  <div className="flex items-center gap-2 text-[#667085] mb-1">
-                    <Users className="w-4 h-4 text-[#168C82]" />
-                    <span className="text-xs font-medium uppercase tracking-wider">Queue</span>
+                  <p className="text-[#667085] text-sm mb-6 line-clamp-2">{dept.description || 'General university department services'}</p>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-[#F8FBFA] p-3 rounded-lg border border-[#E5E9E7]">
+                      <div className="flex items-center gap-2 text-[#667085] mb-1">
+                        <Settings className="w-4 h-4 text-[#168C82]" />
+                        <span className="text-xs font-medium uppercase tracking-wider">Counters</span>
+                      </div>
+                      <p className="font-bold text-[#172033] text-lg">
+                        {dept.activeCounters || 1} <span className="text-sm font-normal text-[#667085]">/ {dept.totalCounters || 2}</span>
+                      </p>
+                    </div>
+                    <div className="bg-[#F8FBFA] p-3 rounded-lg border border-[#E5E9E7]">
+                      <div className="flex items-center gap-2 text-[#667085] mb-1">
+                        <Users className="w-4 h-4 text-[#168C82]" />
+                        <span className="text-xs font-medium uppercase tracking-wider">Queue</span>
+                      </div>
+                      <p className="font-bold text-[#172033] text-lg">{dept.currentQueue || 0}</p>
+                    </div>
                   </div>
-                  <p className="font-bold text-[#172033] text-lg">{dept.currentQueue || 0}</p>
+                </div>
+                
+                <div className="px-6 py-4 bg-gray-50 border-t border-[#E5E9E7] flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => handleDelete(dept.id, dept.name)}
+                      className="text-[#D95C5C] hover:text-red-700 font-medium text-xs flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </button>
+                    <button 
+                      onClick={() => handleToggleStatus(dept)}
+                      className="text-[#667085] hover:text-[#172033] font-medium text-xs flex items-center gap-1"
+                      title={isActive ? 'Deactivate' : 'Activate'}
+                    >
+                      <Power className="w-3.5 h-3.5" /> {isActive ? 'Deactivate' : 'Activate'}
+                    </button>
+                  </div>
+                  <button 
+                    onClick={() => openModal(dept)}
+                    className="text-[#168C82] hover:text-[#127a71] font-semibold text-sm flex items-center gap-1"
+                  >
+                    <Edit2 className="w-4 h-4" /> Manage
+                  </button>
                 </div>
               </div>
-            </div>
-            
-            <div className="px-6 py-4 bg-gray-50 border-t border-[#E5E9E7] flex justify-between items-center">
-              <button 
-                onClick={() => handleDelete(dept.id, dept.name)}
-                className="text-[#D95C5C] hover:text-red-700 font-medium text-xs flex items-center gap-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" /> Delete
-              </button>
-              <button 
-                onClick={() => openModal(dept)}
-                className="text-[#168C82] hover:text-[#127a71] font-semibold text-sm flex items-center gap-1"
-              >
-                <Edit2 className="w-4 h-4" /> Manage
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Modal */}
       {isModalOpen && (

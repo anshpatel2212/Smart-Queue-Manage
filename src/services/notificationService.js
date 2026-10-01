@@ -43,11 +43,16 @@ export const getUserNotifications = async (userId) => {
     const q = query(
       collection(db, 'notifications'),
       where('userId', '==', userId),
-      orderBy('createdAt', 'desc'),
       limit(50)
     );
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    items.sort((a, b) => {
+      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+      return timeB - timeA;
+    });
+    return items;
   } catch (error) {
     console.warn('Error fetching notifications:', error);
     return [];
@@ -62,7 +67,6 @@ export const subscribeUserNotifications = (userId, callback) => {
   const q = query(
     collection(db, 'notifications'),
     where('userId', '==', userId),
-    orderBy('createdAt', 'desc'),
     limit(50)
   );
 
@@ -70,6 +74,11 @@ export const subscribeUserNotifications = (userId, callback) => {
     q,
     (snap) => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+        return timeB - timeA;
+      });
       callback(items);
     },
     (err) => {

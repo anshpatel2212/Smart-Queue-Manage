@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Save, Bell, Monitor, Settings, Loader2, Check } from 'lucide-react';
-import { getSystemSettings, updateSystemSettings } from '../../services/settingsService';
+import { updateSystemSettings, subscribeSystemSettings } from '../../services/settingsService';
 
 const ToggleSwitch = ({ label, description, checked, onChange }) => (
   <div className="flex items-center justify-between py-4 border-b border-[#E5E9E7] last:border-0">
@@ -42,12 +42,11 @@ const AdminSettings = () => {
   });
 
   useEffect(() => {
-    getSystemSettings().then((data) => {
+    const unsub = subscribeSystemSettings((data) => {
       setSettings(data);
       setFetching(false);
-    }).catch(() => {
-      setFetching(false);
     });
+    return () => unsub();
   }, []);
 
   const handleToggle = (key) => {

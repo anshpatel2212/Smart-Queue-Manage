@@ -1,4 +1,4 @@
-import { db, doc, getDoc, setDoc, serverTimestamp } from '../firebase/firestore';
+import { db, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from '../firebase/firestore';
 
 const DEFAULT_SETTINGS = {
   institutionName: 'Smart Campus University',
@@ -51,4 +51,22 @@ export const updateSystemSettings = async (newSettings) => {
     console.error('Error saving system settings:', error);
     throw error;
   }
+};
+
+export const subscribeSystemSettings = (callback) => {
+  const settingsRef = doc(db, 'settings', 'system');
+  return onSnapshot(
+    settingsRef,
+    (snap) => {
+      if (snap.exists()) {
+        callback({ ...DEFAULT_SETTINGS, ...snap.data() });
+      } else {
+        callback(DEFAULT_SETTINGS);
+      }
+    },
+    (err) => {
+      console.warn('System settings subscription error:', err);
+      callback(DEFAULT_SETTINGS);
+    }
+  );
 };

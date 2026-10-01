@@ -1,17 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Edit2, Trash2, X, Search, Filter, Loader2 } from 'lucide-react';
-import { 
-  subscribeServices, 
-  getDepartments, 
-  createService, 
-  updateService, 
-  deleteService 
-} from '../../services/serviceService';
+import { Plus, Edit2, Trash2, X, Search, Filter, Loader2, Power } from 'lucide-react';
+import { useAdminServices } from '../../hooks/useAdminServices';
 
 const ServiceManagement = () => {
-  const [services, setServices] = useState([]);
-  const [departments, setDepartments] = useState([]);
+  const { 
+    services, 
+    departments, 
+    loading: fetching, 
+    addService, 
+    editService, 
+    removeService, 
+    toggleServiceStatus 
+  } = useAdminServices();
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingService, setEditingService] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -29,14 +31,6 @@ const ServiceManagement = () => {
     prefix: 'Q',
     status: 'open',
   });
-
-  useEffect(() => {
-    const unsub = subscribeServices((items) => {
-      setServices(items);
-    });
-    getDepartments().then(depts => setDepartments(depts)).catch(() => {});
-    return () => unsub();
-  }, []);
 
   const showMsg = (msg) => {
     setFeedback(msg);
@@ -93,15 +87,15 @@ const ServiceManagement = () => {
     setLoading(true);
     try {
       if (editingService) {
-        await updateService(editingService.id, payload);
+        await editService(editingService.id, payload);
         showMsg(`Service "${formData.name}" updated successfully.`);
       } else {
-        await createService(payload);
+        await addService(payload);
         showMsg(`Service "${formData.name}" created successfully.`);
       }
       closeModal();
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      alert(err.message || "Failed to save service. You don't have permission.");
     } finally {
       setLoading(false);
     }
@@ -110,10 +104,19 @@ const ServiceManagement = () => {
   const handleDelete = async (id, name) => {
     if (!window.confirm(`Are you sure you want to delete service "${name}"?`)) return;
     try {
-      await deleteService(id);
+      await removeService(id);
       showMsg(`Service "${name}" deleted.`);
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      alert(err.message || "Failed to delete service. You don't have permission.");
+    }
+  };
+
+  const handleToggleStatus = async (service) => {
+    try {
+      await toggleServiceStatus(service.id, service.status);
+      showMsg(`Service "${service.name}" status updated.`);
+    } catch (err) {
+      alert(err.message || 'Failed to update service status.');
     }
   };
 
@@ -140,7 +143,7 @@ const ServiceManagement = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-[#172033]">Service Management</h1>
-          <p className="text-[#667085] mt-1">Configure campus services, wait parameters, and prefix routing</p>
+          <p className="text-[#667085] mt-1">Configure campus services, wait parameters, and prefix routing in real time</p>
         </div>
         <button 
           onClick={() => openModal()}
@@ -184,66 +187,83 @@ const ServiceManagement = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
-            <thead>
-              <tr className="bg-white text-sm text-[#667085] border-b border-[#E5E9E7]">
-                <th className="p-4 font-medium">Service Name</th>
-                <th className="p-4 font-medium">Department</th>
-                <th className="p-4 font-medium">Prefix</th>
-                <th className="p-4 font-medium">Est. Service Time</th>
-                <th className="p-4 font-medium">Counters</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#E5E9E7]">
-              {filteredServices.map((service) => (
-                <tr key={service.id} className="hover:bg-gray-50 transition-colors text-sm">
-                  <td className="p-4 font-bold text-[#172033]">{service.name}</td>
-                  <td className="p-4 text-[#667085]">{service.departmentName || service.departmentId}</td>
-                  <td className="p-4">
-                    <span className="px-2 py-0.5 bg-gray-100 font-mono font-bold text-xs rounded text-[#172033]">
-                      {service.prefix || 'Q'}
-                    </span>
-                  </td>
-                  <td className="p-4 text-[#667085]">{service.averageServiceTime || 5} min</td>
-                  <td className="p-4 text-[#667085]">{service.activeCounters || 1}</td>
-                  <td className="p-4">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${service.status === 'open' || service.status === 'Active' ? 'bg-[#EEF9F7] text-[#1B9A72]' : 'bg-gray-100 text-[#667085]'}`}>
-                      {(service.status || 'open').toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex justify-end gap-2">
-                      <button 
-                        onClick={() => openModal(service)}
-                        className="p-1.5 text-[#667085] hover:text-[#168C82] hover:bg-[#EEF9F7] rounded-md transition-colors"
-                        title="Edit Service"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(service.id, service.name)}
-                        className="p-1.5 text-[#667085] hover:text-[#D95C5C] hover:bg-red-50 rounded-md transition-colors"
-                        title="Delete Service"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
+        {fetching && services.length === 0 ? (
+          <div className="p-12 text-center text-[#667085] flex flex-col items-center">
+            <Loader2 className="w-8 h-8 animate-spin text-[#168C82] mb-2" />
+            <p>Loading services from Firestore...</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[800px]">
+              <thead>
+                <tr className="bg-white text-sm text-[#667085] border-b border-[#E5E9E7]">
+                  <th className="p-4 font-medium">Service Name</th>
+                  <th className="p-4 font-medium">Department</th>
+                  <th className="p-4 font-medium">Prefix</th>
+                  <th className="p-4 font-medium">Est. Service Time</th>
+                  <th className="p-4 font-medium">Counters</th>
+                  <th className="p-4 font-medium">Status</th>
+                  <th className="p-4 font-medium text-right">Actions</th>
                 </tr>
-              ))}
-              {filteredServices.length === 0 && (
-                <tr>
-                  <td colSpan="7" className="p-8 text-center text-[#667085]">
-                    No campus services found matching your criteria.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-[#E5E9E7]">
+                {filteredServices.map((service) => {
+                  const isOpen = service.status === 'open' || service.status === 'Active';
+                  return (
+                    <tr key={service.id} className="hover:bg-gray-50 transition-colors text-sm">
+                      <td className="p-4 font-bold text-[#172033]">{service.name}</td>
+                      <td className="p-4 text-[#667085]">{service.departmentName || service.departmentId}</td>
+                      <td className="p-4">
+                        <span className="px-2 py-0.5 bg-gray-100 font-mono font-bold text-xs rounded text-[#172033]">
+                          {service.prefix || 'Q'}
+                        </span>
+                      </td>
+                      <td className="p-4 text-[#667085]">{service.averageServiceTime || 5} min</td>
+                      <td className="p-4 text-[#667085]">{service.activeCounters || 1}</td>
+                      <td className="p-4">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isOpen ? 'bg-[#EEF9F7] text-[#1B9A72]' : 'bg-gray-100 text-[#667085]'}`}>
+                          {(service.status || 'open').toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex justify-end items-center gap-2">
+                          <button 
+                            onClick={() => handleToggleStatus(service)}
+                            className="p-1.5 text-[#667085] hover:text-[#172033] hover:bg-gray-100 rounded-md transition-colors"
+                            title={isOpen ? 'Close Service' : 'Open Service'}
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => openModal(service)}
+                            className="p-1.5 text-[#667085] hover:text-[#168C82] hover:bg-[#EEF9F7] rounded-md transition-colors"
+                            title="Edit Service"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleDelete(service.id, service.name)}
+                            className="p-1.5 text-[#667085] hover:text-[#D95C5C] hover:bg-red-50 rounded-md transition-colors"
+                            title="Delete Service"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredServices.length === 0 && (
+                  <tr>
+                    <td colSpan="7" className="p-8 text-center text-[#667085]">
+                      No campus services found matching your criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Add/Edit Modal */}
