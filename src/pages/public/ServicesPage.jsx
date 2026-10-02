@@ -275,7 +275,7 @@ const ServicesPage = () => {
                   </div>
 
                   <Link 
-                    to="/login"
+                    to={`/student/join-queue/${service.id}`}
                     className={`w-full py-3 px-4 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${
                       isOpen
                         ? 'bg-[#168C82] hover:bg-[#127A71] text-white shadow-sm hover:shadow'
@@ -286,7 +286,7 @@ const ServicesPage = () => {
                     <ArrowRight size={16} />
                   </Link>
                   <p className="text-center text-[11px] text-[#667085] mt-2">
-                    Requires student account login
+                    No account required • Instant access
                   </p>
                 </div>
               </motion.div>
@@ -345,17 +345,17 @@ const ServicesPage = () => {
             Ready to Skip the Campus Lines?
           </h2>
           <p className="mt-4 text-lg text-[#667085] max-w-2xl mx-auto">
-            Create your student account in seconds or sign in to get immediate access to all university queues.
+            Join queues instantly from any device — no login or account creation required for students.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/register">
+            <Link to="/student/services">
               <Button variant="primary" size="lg" className="w-full sm:w-auto shadow-md">
-                Get Started Free
+                Browse Campus Services
               </Button>
             </Link>
             <Link to="/login">
               <Button variant="secondary" size="lg" className="w-full sm:w-auto">
-                Sign In to Join Queue
+                Staff &amp; Admin Login
               </Button>
             </Link>
           </div>

@@ -62,8 +62,8 @@ export const predictWaitingTime = async ({
   // Immediate deterministic return for 0 people ahead
   if (safeAhead === 0) {
     return {
-      estimatedWait: 1,
-      predictionSource: 'ml',
+      estimatedWait: 0,
+      predictionSource: 'deterministic',
     };
   }
 
@@ -107,8 +107,9 @@ export const predictWaitingTime = async ({
     if (response.ok) {
       const result = await response.json();
       if (result.success && typeof result.estimated_wait_minutes === 'number') {
+        const predicted = Math.round(result.estimated_wait_minutes);
         return {
-          estimatedWait: Math.max(1, Math.round(result.estimated_wait_minutes)),
+          estimatedWait: safeAhead === 0 ? 0 : Math.max(1, predicted),
           predictionSource: 'ml',
           featuresUsed: result.features_used
         };

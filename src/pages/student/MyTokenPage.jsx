@@ -60,6 +60,7 @@ const MyTokenPage = () => {
     currentlyServing,
     peopleAhead,
     estimatedWait,
+    estimatedWaitDisplay,
     predictionSource,
     counter,
     joinedAt,
@@ -147,8 +148,8 @@ const MyTokenPage = () => {
                   {predictionSource === 'ml' ? 'AI/ML' : 'ETA'}
                 </span>
               </div>
-              <span className="text-2xl font-bold text-[#168C82]">
-                {status === 'called' || status === 'in_service' ? 'Now' : `${estimatedWait} min`}
+              <span className={`font-bold text-[#168C82] block leading-tight ${estimatedWaitDisplay && estimatedWaitDisplay.length > 10 ? 'text-lg sm:text-xl' : 'text-2xl'}`}>
+                {estimatedWaitDisplay}
               </span>
             </div>
             

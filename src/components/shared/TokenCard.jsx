@@ -1,7 +1,9 @@
 import React from 'react';
 import StatusBadge from './StatusBadge';
+import { getEstimatedWaitDisplay } from '../../utils/queueCalculations';
 
 const TokenCard = ({ tokenNumber, status, currentlyServing, peopleAhead, estimatedWait, counter }) => {
+  const waitDisplay = getEstimatedWaitDisplay(status, peopleAhead, estimatedWait);
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-[#E5E9E7] p-8 max-w-md mx-auto text-center">
       <div className="flex justify-between items-center mb-6">
@@ -28,7 +30,7 @@ const TokenCard = ({ tokenNumber, status, currentlyServing, peopleAhead, estimat
         </div>
         <div>
           <p className="text-xs text-[#667085] mb-1">Estimated Wait</p>
-          <p className="text-xl font-bold text-[#172033]">{estimatedWait} min</p>
+          <p className={`font-bold text-[#172033] ${waitDisplay.length > 10 ? 'text-sm sm:text-base' : 'text-xl'}`}>{waitDisplay}</p>
         </div>
         <div className="col-span-2 mt-2">
           <p className="text-xs text-[#667085] mb-1">Currently Serving</p>

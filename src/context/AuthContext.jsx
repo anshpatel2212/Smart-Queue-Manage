@@ -1,9 +1,8 @@
 import React, { createContext, useEffect, useState } from 'react';
 import { auth } from '../firebase/config';
-import { onAuthStateChanged, signOut } from '../firebase/auth';
-import { getUserProfile, createUserProfile } from '../services/userService';
+import { onAuthStateChanged, signOut, signInAnonymously } from '../firebase/auth';
+import { getUserProfile } from '../services/userService';
 import { 
-  registerUser, 
   loginUser, 
   logoutUser, 
   loginWithGoogle, 
@@ -11,7 +10,7 @@ import {
 } from '../services/authService';
 
 export const AuthContext = createContext(null);
-const ALLOWED_ROLES = ['student', 'staff', 'admin'];
+const STAFF_ADMIN_ROLES = ['staff', 'admin'];
 
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
@@ -20,90 +19,126 @@ export const AuthProvider = ({ children }) => {
   const [authError, setAuthError] = useState(null);
 
   useEffect(() => {
+    let isMounted = true;
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoading(true);
+      if (!isMounted) return;
+
       if (firebaseUser) {
+        // CASE A: Anonymous Student User
+        if (firebaseUser.isAnonymous) {
+          // Requirement 4 & 5: Students authenticate anonymously in the background.
+          // DO NOT query or create users/{uid} for anonymous students.
+          setCurrentUser(firebaseUser);
+          setUserProfile({
+            uid: firebaseUser.uid,
+            name: 'Guest Student',
+            role: 'guest',
+            isAnonymous: true,
+            status: 'active'
+          });
+          setAuthError(null);
+          setLoading(false);
+          return;
+        }
+
+        // CASE B: Permanent Staff or Admin User
         try {
-          let profile = await getUserProfile(firebaseUser.uid, firebaseUser.email);
+          setLoading(true);
+          const profile = await getUserProfile(firebaseUser.uid, firebaseUser.email);
           
           if (!profile) {
-            const emailLower = (firebaseUser.email || '').toLowerCase().trim();
-            let assignedRole = 'student';
-            if (emailLower.includes('admin') || emailLower === 'admin@smartcampus.edu') {
-              assignedRole = 'admin';
-            } else if (emailLower.includes('staff') || emailLower === 'kavitha.nair@smartcampus.edu') {
-              assignedRole = 'staff';
+            console.warn('[AuthContext] Staff/Admin profile not found for UID:', firebaseUser.uid);
+            await signOut(auth);
+            if (isMounted) {
+              setCurrentUser(null);
+              setUserProfile(null);
+              setAuthError('User profile not found. Access is restricted to Staff and Admin accounts.');
+              setLoading(false);
             }
-
-            // Create profile with properly detected role
-            profile = await createUserProfile(firebaseUser.uid, {
-              name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Campus User',
-              email: firebaseUser.email,
-              role: assignedRole,
-              status: 'active',
-              departmentId: assignedRole === 'staff' ? 'examination' : null,
-              counter: assignedRole === 'staff' ? 1 : null,
-            });
+            return;
           }
 
-          // Check if account status is inactive
+          const rawRole = (profile.role || '').toString().toLowerCase().trim();
+          if (!rawRole || !STAFF_ADMIN_ROLES.includes(rawRole)) {
+            console.warn('[AuthContext] Access denied: non-staff/admin account tried to sign in. Role:', profile.role);
+            await signOut(auth);
+            if (isMounted) {
+              setCurrentUser(null);
+              setUserProfile(null);
+              setAuthError('Access denied. Only Staff and Admin accounts can sign in here.');
+              setLoading(false);
+            }
+            return;
+          }
+          profile.role = rawRole;
+
           if (profile.status === 'inactive') {
             await signOut(auth);
-            setCurrentUser(null);
-            setUserProfile(null);
-            setAuthError('Your account is inactive. Please contact the administrator.');
-            setLoading(false);
+            if (isMounted) {
+              setCurrentUser(null);
+              setUserProfile(null);
+              setAuthError('Your account is inactive. Please contact the administrator.');
+              setLoading(false);
+            }
             return;
           }
 
-          // Check if role is invalid or missing
-          if (!profile.role || !ALLOWED_ROLES.includes(profile.role)) {
-            await signOut(auth);
-            setCurrentUser(null);
-            setUserProfile(null);
-            setAuthError('Your account role is not configured. Please contact the administrator.');
+          if (isMounted) {
+            setCurrentUser(firebaseUser);
+            setUserProfile({ ...profile, role: rawRole, isAnonymous: false });
+            setAuthError(null);
             setLoading(false);
-            return;
           }
-
-          setCurrentUser(firebaseUser);
-          setUserProfile(profile);
-          setAuthError(null);
         } catch (err) {
-          console.warn('Error fetching user profile in onAuthStateChanged:', err);
-          setCurrentUser(null);
-          setUserProfile(null);
+          console.warn('[AuthContext] Error fetching profile:', err);
+          if (isMounted) {
+            setCurrentUser(null);
+            setUserProfile(null);
+            setAuthError(err.message || 'Authentication error');
+            setLoading(false);
+          }
         }
       } else {
-        setCurrentUser(null);
-        setUserProfile(null);
+        // CASE C: No user logged in -> Automatically sign in anonymously in the background
+        try {
+          await signInAnonymously(auth);
+          // onAuthStateChanged will re-trigger with the new anonymous user
+        } catch (anonErr) {
+          console.warn('[AuthContext] Silent anonymous authentication error:', anonErr);
+          if (isMounted) {
+            setCurrentUser(null);
+            setUserProfile(null);
+            setLoading(false);
+          }
+        }
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
-  const login = async (email, password) => {
-    setAuthError(null);
+  const ensureAnonymousUser = async () => {
+    if (auth.currentUser) return auth.currentUser;
     try {
-      const { user, profile } = await loginUser(email, password);
-      setCurrentUser(user);
-      setUserProfile(profile);
-      return profile;
+      const cred = await signInAnonymously(auth);
+      return cred.user;
     } catch (err) {
-      setAuthError(err.message);
+      console.error('[AuthContext] Failed to ensure anonymous user:', err);
       throw err;
     }
   };
 
-  const register = async (userData) => {
+  const login = async (email, password) => {
     setAuthError(null);
     try {
-      const { user, profile } = await registerUser(userData);
+      const { user, profile, role } = await loginUser(email, password);
       setCurrentUser(user);
       setUserProfile(profile);
-      return profile;
+      return { user, profile, role };
     } catch (err) {
       setAuthError(err.message);
       throw err;
@@ -113,10 +148,10 @@ export const AuthProvider = ({ children }) => {
   const signInWithGoogle = async () => {
     setAuthError(null);
     try {
-      const { user, profile } = await loginWithGoogle();
+      const { user, profile, role } = await loginWithGoogle();
       setCurrentUser(user);
       setUserProfile(profile);
-      return profile;
+      return { user, profile, role };
     } catch (err) {
       setAuthError(err.message);
       throw err;
@@ -127,8 +162,7 @@ export const AuthProvider = ({ children }) => {
     setAuthError(null);
     try {
       await logoutUser();
-      setCurrentUser(null);
-      setUserProfile(null);
+      // onAuthStateChanged will fire with null and automatically re-create an anonymous student session
     } catch (err) {
       setAuthError(err.message);
       throw err;
@@ -145,38 +179,83 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const refreshProfile = async () => {
-    if (currentUser?.uid) {
-      const profile = await getUserProfile(currentUser.uid);
-      if (profile) setUserProfile(profile);
+  const setAuthSession = (firebaseUser, profile) => {
+    if (profile && profile.role) {
+      profile.role = profile.role.toString().toLowerCase().trim();
+    }
+    setCurrentUser(firebaseUser);
+    setUserProfile(profile);
+    setLoading(false);
+    setAuthError(null);
+  };
+
+  const refreshProfile = async (explicitUid = null, explicitProfile = null) => {
+    if (explicitProfile) {
+      if (explicitProfile.role) {
+        explicitProfile.role = explicitProfile.role.toString().toLowerCase().trim();
+      }
+      setUserProfile(explicitProfile);
+      return;
+    }
+    const targetUid = explicitUid || currentUser?.uid || auth.currentUser?.uid;
+    if (targetUid && !currentUser?.isAnonymous) {
+      const p = await getUserProfile(targetUid, auth.currentUser?.email);
+      if (p) {
+        if (p.role) p.role = p.role.toString().toLowerCase().trim();
+        setUserProfile(p);
+      }
     }
   };
 
-  // Check valid authenticated state with active status and allowed role
-  const isValidAuth = Boolean(
-    currentUser && 
-    userProfile && 
-    userProfile.status === 'active' && 
-    ALLOWED_ROLES.includes(userProfile.role)
-  );
+  const isAnonymous = Boolean(currentUser?.isAnonymous);
+  const normalizedRole = isAnonymous 
+    ? 'guest' 
+    : (userProfile?.role ? userProfile.role.toString().toLowerCase().trim() : null);
 
   // Consolidated user object
-  const user = isValidAuth ? {
-    uid: currentUser.uid,
-    email: currentUser.email,
-    displayName: userProfile?.name || currentUser.displayName || 'User',
-    name: userProfile?.name || currentUser.displayName || 'User',
-    photoURL: userProfile?.photoURL || currentUser.photoURL,
-    role: userProfile?.role, // 'student' | 'staff' | 'admin'
-    departmentId: userProfile?.departmentId || null,
-    counter: userProfile?.counter || 1,
-    status: userProfile?.status || 'active',
-    studentId: userProfile?.studentId || '',
-    phone: userProfile?.phone || '',
-    ...userProfile
-  } : null;
+  let user = null;
+  if (currentUser) {
+    if (isAnonymous) {
+      user = {
+        uid: currentUser.uid,
+        email: '',
+        displayName: 'Guest Student',
+        name: 'Guest Student',
+        role: 'guest',
+        isAnonymous: true,
+        status: 'active'
+      };
+    } else {
+      user = {
+        uid: currentUser.uid,
+        email: currentUser.email,
+        displayName: userProfile?.name || currentUser.displayName || 'Staff Member',
+        name: userProfile?.name || currentUser.displayName || 'Staff Member',
+        photoURL: userProfile?.photoURL || currentUser.photoURL,
+        role: normalizedRole,
+        departmentId: userProfile?.departmentId || null,
+        counter: userProfile?.counter || 1,
+        status: userProfile?.status || 'active',
+        isAnonymous: false,
+        ...userProfile,
+        role: normalizedRole
+      };
+    }
+  }
 
-  const role = userProfile?.role || null;
+  const role = normalizedRole;
+  const isAuthenticated = Boolean(currentUser);
+
+  const resetAnonymousSession = async () => {
+    try {
+      await signOut(auth);
+      const cred = await signInAnonymously(auth);
+      return cred.user;
+    } catch (err) {
+      console.error('[AuthContext] Reset anonymous session error:', err);
+      throw err;
+    }
+  };
 
   const value = {
     user,
@@ -185,14 +264,17 @@ export const AuthProvider = ({ children }) => {
     userProfile,
     role,
     loading,
-    isAuthenticated: isValidAuth,
+    isAuthenticated,
+    isAnonymous,
     authError,
     login,
-    register,
     logout,
     signInWithGoogle,
     resetPassword,
-    refreshProfile
+    refreshProfile,
+    setAuthSession,
+    ensureAnonymousUser,
+    resetAnonymousSession
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

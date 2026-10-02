@@ -7,4 +7,5 @@ export {
   sendPasswordResetEmail,
   updateProfile,
   onAuthStateChanged,
+  signInAnonymously,
 } from 'firebase/auth';

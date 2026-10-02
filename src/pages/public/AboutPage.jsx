@@ -298,9 +298,9 @@ const AboutPage = () => {
             Experience the complete frontend with interactive student, staff, and admin workflows.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/register">
+            <Link to="/student">
               <Button variant="primary" size="lg" className="w-full sm:w-auto shadow-md">
-                Get Started
+                Get Started (No Account)
               </Button>
             </Link>
             <Link to="/services">

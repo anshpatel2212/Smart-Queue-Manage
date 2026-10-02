@@ -5,10 +5,11 @@ import { CheckCircle2, ArrowLeft, Users, Clock, Monitor, Loader2, AlertCircle } 
 import { useAuth } from '../../hooks/useAuth';
 import { getService } from '../../services/serviceService';
 import { joinQueue, getUserActiveToken } from '../../services/tokenService';
+import { getEstimatedWaitDisplay } from '../../utils/queueCalculations';
 
 const JoinQueuePage = () => {
   const { serviceId } = useParams();
-  const { user } = useAuth();
+  const { user, ensureAnonymousUser } = useAuth();
 
   const [service, setService] = useState(null);
   const [loadingService, setLoadingService] = useState(true);
@@ -25,8 +26,18 @@ const JoinQueuePage = () => {
         const srv = await getService(serviceId);
         if (isMounted) setService(srv);
 
-        if (user?.uid) {
-          const active = await getUserActiveToken(user.uid);
+        let targetUid = user?.uid;
+        if (!targetUid && ensureAnonymousUser) {
+          try {
+            const anon = await ensureAnonymousUser();
+            targetUid = anon?.uid;
+          } catch (e) {
+            console.warn('Anonymous user setup deferred:', e);
+          }
+        }
+
+        if (targetUid) {
+          const active = await getUserActiveToken(targetUid);
           if (isMounted && active) {
             setExistingToken(active);
             if (active.serviceId === serviceId) {
@@ -35,7 +46,8 @@ const JoinQueuePage = () => {
           }
         }
       } catch (err) {
-        if (isMounted) setErrorMessage(err.message);
+        console.error('Service load error:', err);
+        if (isMounted) setErrorMessage('Unable to load service details. Please try again.');
       } finally {
         if (isMounted) setLoadingService(false);
       }
@@ -43,21 +55,30 @@ const JoinQueuePage = () => {
 
     load();
     return () => { isMounted = false; };
-  }, [serviceId, user?.uid]);
+  }, [serviceId, user?.uid, ensureAnonymousUser]);
 
   const handleJoin = async () => {
-    if (!user) {
-      setErrorMessage('Please log in first to join a queue.');
-      return;
-    }
     setErrorMessage('');
     setJoining(true);
 
     try {
-      const token = await joinQueue({ user, serviceId });
+      let activeUser = user;
+      if (!activeUser || !activeUser.uid) {
+        const anon = await ensureAnonymousUser();
+        activeUser = {
+          uid: anon.uid,
+          displayName: 'Guest Student',
+          name: 'Guest Student',
+          role: 'guest',
+          isAnonymous: true
+        };
+      }
+
+      const token = await joinQueue({ user: activeUser, serviceId });
       setGeneratedToken(token);
     } catch (err) {
-      setErrorMessage(err.message || 'Failed to join queue.');
+      console.error('Join queue error:', err);
+      setErrorMessage(err.message || 'Unable to join the queue. Please try again.');
     } finally {
       setJoining(false);
     }
@@ -202,7 +223,9 @@ const JoinQueuePage = () => {
               </div>
               <div className="border border-[#E5E9E7] rounded-xl p-3 bg-[#F8FBFA]">
                 <p className="text-xs text-[#667085] mb-0.5">Estimated Wait</p>
-                <p className="font-bold text-[#168C82] text-base">~{generatedToken.estimatedWait || 1} min</p>
+                <p className="font-bold text-[#168C82] text-base">
+                  {getEstimatedWaitDisplay(generatedToken.status || 'waiting', generatedToken.peopleAhead ?? 0, generatedToken.estimatedWait ?? 0)}
+                </p>
               </div>
               <div className="border border-[#E5E9E7] rounded-xl p-3 bg-[#F8FBFA]">
                 <p className="text-xs text-[#667085] mb-0.5">Service Counter</p>

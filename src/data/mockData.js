@@ -161,12 +161,7 @@ export const aiSuggestedQuestions = [
   'Where is the examination section?',
 ];
 
-export const aiMockResponses = {
-  'What is my queue position?': 'Your current queue position is **#5** with token **E-047**. You are in the Examination queue for the Exam Hall Ticket service. There are 4 people ahead of you.',
-  'How long will I wait?': 'Based on the current queue speed, your estimated waiting time is approximately **12 minutes**. The average service time at Counter 2 is about 5 minutes per person.',
-  'Which service has the shortest queue?': 'Currently, **Library Clearance** has the shortest queue with only 2 people waiting (estimated wait: 8 minutes). **WiFi / Email Access** at IT Support is also quick with 3 people (estimated wait: 10 minutes).',
-  'Where is the examination section?': 'The Examination Section is located in the **Administrative Block, 2nd Floor, Room 201-205**. It\'s open from 9:00 AM to 4:30 PM, Monday to Friday. Currently, 2 counters are active.',
-};
+export const aiMockResponses = {};
 
 // Admin settings
 export const adminSettings = {

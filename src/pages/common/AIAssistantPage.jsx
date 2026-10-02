@@ -1,12 +1,31 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Bot, User, Sparkles } from 'lucide-react';
-import { aiChatMessages, aiMockResponses, aiSuggestedQuestions } from '@/data/mockData';
+import { aiSuggestedQuestions } from '@/data/mockData';
+import { useAuth } from '@/hooks/useAuth';
+import { processAIQuery } from '@/services/aiAssistantService';
+
+const renderFormattedMessage = (text) => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={index} className="font-semibold">{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+};
 
 const AIAssistantPage = () => {
-  const [messages, setMessages] = useState(
-    aiChatMessages.map(m => ({ id: m.id, sender: m.role === 'assistant' ? 'ai' : 'user', text: m.message, time: m.time }))
-  );
+  const { user } = useAuth();
+  const [messages, setMessages] = useState([
+    {
+      id: 'AI_WELCOME',
+      sender: 'ai',
+      text: "Hello! I'm your Smart Campus Assistant. I can help you with live queue information, campus services, and general queries. How can I help you today?",
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
@@ -19,37 +38,27 @@ const AIAssistantPage = () => {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  const getAIResponse = (userText) => {
-    // Check exact match first
-    if (aiMockResponses[userText]) return aiMockResponses[userText];
-    // Check partial match
-    const lowerText = userText.toLowerCase();
-    for (const [key, value] of Object.entries(aiMockResponses)) {
-      if (lowerText.includes(key.toLowerCase().split(' ').slice(0, 3).join(' '))) {
-        return value;
-      }
-    }
-    return "I can help you with queue information, campus services, waiting times, and general queries. Try asking about your queue position, wait time, or which service has the shortest queue!";
-  };
+  const handleSendQuestion = useCallback(async (questionText) => {
+    const trimmed = (questionText || '').trim();
+    if (!trimmed || isTyping) return;
 
-  const handleSend = (e) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+    const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const userMsg = {
       id: Date.now(),
       sender: 'user',
-      text: input,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      text: trimmed,
+      time: currentTime
     };
 
     setMessages(prev => [...prev, userMsg]);
-    const userInput = input;
     setInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
-      const responseText = getAIResponse(userInput);
+    try {
+      // Query real Firestore queue/service data
+      const responseText = await processAIQuery(trimmed, user?.uid);
+
       const aiMsg = {
         id: Date.now() + 1,
         sender: 'ai',
@@ -57,12 +66,27 @@ const AIAssistantPage = () => {
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setMessages(prev => [...prev, aiMsg]);
+    } catch (err) {
+      console.error('AI Queue Data Error:', err);
+      const errorMsg = {
+        id: Date.now() + 1,
+        sender: 'ai',
+        text: "I can't access your live queue information right now. Please try again.",
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
+  }, [isTyping, user?.uid]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    handleSendQuestion(input);
   };
 
   const handleSuggestionClick = (question) => {
-    setInput(question);
+    handleSendQuestion(question);
   };
 
   return (
@@ -92,12 +116,12 @@ const AIAssistantPage = () => {
                   {msg.sender === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                 </div>
                 <div>
-                  <div className={`p-4 shadow-sm text-sm leading-relaxed ${
+                  <div className={`p-4 shadow-sm text-sm leading-relaxed whitespace-pre-line ${
                     msg.sender === 'user' 
                       ? 'bg-[#168C82] text-white rounded-2xl rounded-tr-none' 
                       : 'bg-white border border-[#E5E9E7] text-[#172033] rounded-2xl rounded-tl-none'
                   }`}>
-                    {msg.text}
+                    {renderFormattedMessage(msg.text)}
                   </div>
                   <p className={`text-xs text-[#667085] mt-1 ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}>
                     {msg.time}
@@ -130,25 +154,28 @@ const AIAssistantPage = () => {
             {aiSuggestedQuestions.map((q, idx) => (
               <button 
                 key={idx}
+                type="button"
                 onClick={() => handleSuggestionClick(q)}
-                className="px-3 py-1.5 bg-[#EEF9F7] text-[#168C82] text-xs font-medium rounded-full hover:bg-[#168C82] hover:text-white transition-colors border border-[#168C82]/20"
+                disabled={isTyping}
+                className="px-3 py-1.5 bg-[#EEF9F7] text-[#168C82] text-xs font-medium rounded-full hover:bg-[#168C82] hover:text-white transition-colors border border-[#168C82]/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {q}
               </button>
             ))}
           </div>
           
-          <form onSubmit={handleSend} className="relative">
+          <form onSubmit={handleSubmit} className="relative">
             <input 
               type="text" 
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask me anything about campus queues..."
-              className="w-full pl-4 pr-12 py-3 bg-gray-50 border border-[#E5E9E7] rounded-xl focus:outline-none focus:border-[#168C82] focus:bg-white text-sm transition-colors"
+              disabled={isTyping}
+              className="w-full pl-4 pr-12 py-3 bg-gray-50 border border-[#E5E9E7] rounded-xl focus:outline-none focus:border-[#168C82] focus:bg-white text-sm transition-colors disabled:opacity-60"
             />
             <button 
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() || isTyping}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-[#168C82] text-white rounded-lg hover:bg-[#127a71] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="w-4 h-4" />

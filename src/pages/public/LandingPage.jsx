@@ -54,7 +54,7 @@ const LandingPage = () => {
                 Skip the physical line. Get digital tokens, check live queue positions, and view estimated waiting times right from your personal device anywhere on campus.
               </motion.p>
               <motion.div variants={fadeUp} className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                <Link to="/register" className="w-full sm:w-auto">
+                <Link to="/student" className="w-full sm:w-auto">
                   <Button variant="primary" size="lg" className="w-full sm:w-auto shadow-md">
                     Join a Queue <ArrowRight size={18} className="ml-2" />
                   </Button>
@@ -507,7 +507,7 @@ const LandingPage = () => {
             transition={{ delay: 0.2 }}
             className="flex flex-col sm:flex-row gap-4 justify-center"
           >
-            <Link to="/register" className="w-full sm:w-auto">
+            <Link to="/student" className="w-full sm:w-auto">
               <Button variant="primary" size="lg" className="w-full sm:w-auto shadow-md">
                 Get Started Free
               </Button>

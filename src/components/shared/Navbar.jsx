@@ -84,11 +84,11 @@ const Navbar = () => {
               to="/login" 
               className="px-4 py-2 text-sm font-medium text-[#172033] hover:text-[#168C82] rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#168C82]"
             >
-              Log In
+              Staff Login
             </Link>
-            <Link to="/register" tabIndex={-1}>
+            <Link to="/student" tabIndex={-1}>
               <Button variant="primary" size="sm" className="shadow-sm">
-                Get Started
+                Join Queue
               </Button>
             </Link>
           </div>
@@ -144,14 +144,14 @@ const Navbar = () => {
                 onClick={closeMenu}
                 className="flex items-center justify-center w-full px-4 py-3 border border-[#E5E9E7] shadow-sm text-base font-medium rounded-xl text-[#172033] bg-white hover:bg-[#F8FBFA] min-h-[44px] transition-colors"
               >
-                Log In
+                Staff Login
               </Link>
               <Link
-                to="/register"
+                to="/student"
                 onClick={closeMenu}
                 className="flex items-center justify-center w-full px-4 py-3 bg-[#168C82] hover:bg-[#127A71] text-white shadow-sm text-base font-medium rounded-xl min-h-[44px] transition-colors"
               >
-                Get Started
+                Join Queue
               </Link>
             </div>
           </motion.div>

@@ -345,14 +345,14 @@ const FeaturesPage = () => {
             Test the live student, staff, and admin dashboards with realistic mock data.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/register">
+            <Link to="/student">
               <Button variant="primary" size="lg" className="w-full sm:w-auto shadow-md">
-                Get Started
+                Get Started (No Account)
               </Button>
             </Link>
             <Link to="/login">
               <Button variant="secondary" size="lg" className="w-full sm:w-auto">
-                Explore Dashboards
+                Staff &amp; Admin Login
               </Button>
             </Link>
           </div>

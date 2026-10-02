@@ -5,7 +5,7 @@ import * as LucideIcons from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
 const Sidebar = ({ role = 'student', currentPath, onNavigate }) => {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
   const navConfig = {
     student: [
@@ -22,14 +22,17 @@ const Sidebar = ({ role = 'student', currentPath, onNavigate }) => {
       { name: 'Live Queue', path: '/staff/live-queue', icon: 'ListOrdered' },
       { name: 'Counter', path: '/staff/counter', icon: 'Monitor' },
       { name: 'History', path: '/staff/history', icon: 'History' },
+      { name: 'Notifications', path: '/staff/notifications', icon: 'Bell' },
       { name: 'AI Assistant', path: '/staff/ai-assistant', icon: 'Bot' },
       { name: 'Profile', path: '/staff/profile', icon: 'User' },
+      ...(user?.role === 'admin' ? [{ name: 'Admin Overview', path: '/admin', icon: 'ShieldCheck' }] : [])
     ],
     admin: [
       { name: 'Dashboard', path: '/admin', icon: 'LayoutDashboard' },
       { name: 'Departments', path: '/admin/departments', icon: 'Building' },
       { name: 'Services', path: '/admin/services', icon: 'Layers' },
-      { name: 'Staff', path: '/admin/staff', icon: 'Users' },
+      { name: 'Staff Management', path: '/admin/staff', icon: 'Users' },
+      { name: 'Staff Counter View', path: '/staff', icon: 'PhoneCall' },
       { name: 'Analytics', path: '/admin/analytics', icon: 'BarChart2' },
       { name: 'Settings', path: '/admin/settings', icon: 'Settings' },
     ]
@@ -79,22 +82,33 @@ const Sidebar = ({ role = 'student', currentPath, onNavigate }) => {
       </div>
 
       <div className="p-4 border-t border-[#E5E9E7]">
-        <button 
-          type="button"
-          onClick={async () => {
-            if (onNavigate) onNavigate();
-            try {
-              await logout();
-            } catch (e) {
-              console.error(e);
-            }
-            navigate('/login');
-          }}
-          className="flex items-center px-3 py-2.5 rounded-xl text-[#D95C5C] hover:bg-red-50 transition-colors w-full min-h-[44px] cursor-pointer"
-        >
-          <LogOut size={20} className="mr-3 shrink-0" />
-          <span className="font-semibold text-sm">Logout</span>
-        </button>
+        {role === 'student' ? (
+          <Link
+            to="/login"
+            onClick={onNavigate}
+            className="flex items-center px-3 py-2.5 rounded-xl text-[#168C82] hover:bg-[#EEF9F7] transition-colors w-full min-h-[44px]"
+          >
+            <LucideIcons.ShieldCheck size={20} className="mr-3 shrink-0 text-[#168C82]" />
+            <span className="font-semibold text-sm">Staff Login</span>
+          </Link>
+        ) : (
+          <button 
+            type="button"
+            onClick={async () => {
+              if (onNavigate) onNavigate();
+              try {
+                await logout();
+              } catch (e) {
+                console.error(e);
+              }
+              navigate('/login');
+            }}
+            className="flex items-center px-3 py-2.5 rounded-xl text-[#D95C5C] hover:bg-red-50 transition-colors w-full min-h-[44px] cursor-pointer"
+          >
+            <LogOut size={20} className="mr-3 shrink-0" />
+            <span className="font-semibold text-sm">Logout</span>
+          </button>
+        )}
       </div>
     </div>
   );

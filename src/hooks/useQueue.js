@@ -7,7 +7,8 @@ import {
 } from '../services/tokenService';
 import { subscribeQueue } from '../services/queueService';
 import { getService } from '../services/serviceService';
-import { calculateEstimatedWaitTime } from '../utils/queueCalculations';
+import { calculateEstimatedWaitTime, getEstimatedWaitDisplay } from '../utils/queueCalculations';
+import { predictWaitingTime } from '../services/mlService';
 
 export const useQueue = () => {
   const { user } = useAuth();
@@ -18,6 +19,9 @@ export const useQueue = () => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const [mlWait, setMlWait] = useState(null);
+  const [mlSource, setMlSource] = useState('fallback');
 
   // 1. Subscribe to User's Active Token
   useEffect(() => {
@@ -65,12 +69,65 @@ export const useQueue = () => {
     };
   }, [activeToken?.serviceId]);
 
-  // 3. Compute dynamic position, people ahead, ETA, and progress bar
+  // 3. Extract waiting tokens and calculate people ahead in real-time
+  const waitingTokens = useMemo(() => {
+    return serviceTokens.filter(t => t.status === 'waiting');
+  }, [serviceTokens]);
+
+  const userSeq = activeToken?.tokenSequence || 0;
+  const peopleAheadCount = useMemo(() => {
+    return waitingTokens.filter(t => (t.tokenSequence || 0) < userSeq).length;
+  }, [waitingTokens, userSeq]);
+
+  const normStatus = (activeToken?.status || '').toLowerCase().replace(/[-\s]/g, '_');
+  const isServingOrDone = normStatus === 'called' || normStatus === 'in_service' || normStatus === 'completed' || normStatus === 'cancelled' || normStatus === 'skipped' || normStatus === 'no_show';
+  const peopleAhead = isServingOrDone ? 0 : peopleAheadCount;
+
+  const avgTime = Math.max(serviceDetails?.averageServiceTime || 5, 0);
+  const counters = Math.max(queueMetadata?.activeCounters || serviceDetails?.activeCounters || 1, 1);
+
+  // 4. ML Wait Time Prediction query with fallback protection
+  useEffect(() => {
+    if (!activeToken?.serviceId || peopleAhead <= 0 || isServingOrDone) {
+      setMlWait(null);
+      setMlSource('fallback');
+      return;
+    }
+
+    let isMounted = true;
+    const runMLPrediction = async () => {
+      try {
+        const res = await predictWaitingTime({
+          peopleAhead,
+          queueLength: peopleAhead + 1,
+          activeCounters: counters,
+          averageServiceTime: avgTime,
+          serviceType: serviceDetails?.departmentName || serviceDetails?.name,
+          serviceName: serviceDetails?.name,
+        });
+
+        if (isMounted && typeof res?.estimatedWait === 'number' && res.estimatedWait >= 0) {
+          setMlWait(res.estimatedWait);
+          setMlSource(res.predictionSource || 'ml');
+        }
+      } catch {
+        if (isMounted) {
+          setMlWait(null);
+          setMlSource('fallback');
+        }
+      }
+    };
+
+    runMLPrediction();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeToken?.serviceId, peopleAhead, counters, avgTime, isServingOrDone, serviceDetails?.name]);
+
+  // 5. Compute dynamic position, people ahead, ETA, and progress bar
   const computedData = useMemo(() => {
     if (!activeToken) return null;
 
-    // Filter only active waiting/called/in_service tokens
-    const waitingTokens = serviceTokens.filter(t => t.status === 'waiting');
     const calledOrServingTokens = serviceTokens.filter(t => t.status === 'called' || t.status === 'in_service');
 
     // Currently serving token number
@@ -79,32 +136,29 @@ export const useQueue = () => {
       queueMetadata?.currentTokenNumber || 
       'None';
 
-    // Calculate how many waiting tokens are ahead of current user's token
-    const userSeq = activeToken.tokenSequence || 0;
-    const peopleAheadCount = waitingTokens.filter(t => (t.tokenSequence || 0) < userSeq).length;
-    
-    // In service or called -> 0 people ahead
-    const peopleAhead = (activeToken.status === 'called' || activeToken.status === 'in_service') 
-      ? 0 
-      : peopleAheadCount;
+    const position = isServingOrDone ? 1 : peopleAhead + 1;
 
-    const position = (activeToken.status === 'called' || activeToken.status === 'in_service') 
-      ? 1 
-      : peopleAhead + 1;
+    // Deterministic fallback: (peopleAhead * averageServiceTime) / activeCounters, rounded UP
+    const fallbackWait = calculateEstimatedWaitTime(peopleAhead, avgTime, counters);
 
-    // Estimated wait time: prioritize Firestore ML prediction, fallback to calculation
-    const avgTime = serviceDetails?.averageServiceTime || 5;
-    const counters = queueMetadata?.activeCounters || serviceDetails?.activeCounters || 1;
-    const calculatedWait = calculateEstimatedWaitTime(peopleAhead, avgTime, counters);
+    let estimatedWait = fallbackWait;
+    let predictionSource = 'fallback';
 
-    let estimatedWait = calculatedWait;
-    if (activeToken.status === 'called' || activeToken.status === 'in_service') {
+    if (peopleAhead === 0 || isServingOrDone) {
       estimatedWait = 0;
-    } else if (typeof activeToken.estimatedWait === 'number') {
+      predictionSource = 'deterministic';
+    } else if (typeof mlWait === 'number' && mlWait > 0) {
+      estimatedWait = mlWait;
+      predictionSource = mlSource;
+    } else if (typeof activeToken.estimatedWait === 'number' && activeToken.estimatedWait > 0 && activeToken.predictionSource === 'ml' && peopleAhead === (activeToken.peopleAhead ?? peopleAhead)) {
       estimatedWait = activeToken.estimatedWait;
+      predictionSource = 'ml';
+    } else {
+      estimatedWait = fallbackWait;
+      predictionSource = 'fallback';
     }
 
-    const predictionSource = activeToken.predictionSource || 'ml';
+    const estimatedWaitDisplay = getEstimatedWaitDisplay(activeToken.status, peopleAhead, estimatedWait);
 
     // Queue progress pills sequence (e.g. up to 5 tokens culminating in user's token)
     let progressQueue = [];
@@ -122,18 +176,30 @@ export const useQueue = () => {
       tokenNumber: activeToken.tokenNumber,
       service: activeToken.serviceName || serviceDetails?.name || 'Campus Service',
       department: activeToken.departmentName || serviceDetails?.departmentName || 'Department',
-      counter: activeToken.counterNumber || queueMetadata?.activeCounters ? `Counter ${activeToken.counterNumber || 1}` : 'Pending',
+      counter: activeToken.counterNumber ? `Counter ${activeToken.counterNumber}` : (queueMetadata?.activeCounters ? 'Counter 1' : 'Pending'),
       status: activeToken.status, // 'waiting' | 'called' | 'in_service' | 'completed' | 'cancelled'
       currentlyServing,
       peopleAhead,
       position,
       estimatedWait,
+      estimatedWaitDisplay,
       predictionSource,
       joinedAt: activeToken.createdAt?.toDate ? activeToken.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent',
       progressQueue,
       tokenId: activeToken.id || activeToken.tokenId,
     };
-  }, [activeToken, serviceTokens, queueMetadata, serviceDetails]);
+  }, [
+    activeToken,
+    serviceTokens,
+    queueMetadata,
+    serviceDetails,
+    peopleAhead,
+    isServingOrDone,
+    avgTime,
+    counters,
+    mlWait,
+    mlSource
+  ]);
 
   // Cancel Queue action
   const handleCancelQueue = useCallback(async () => {

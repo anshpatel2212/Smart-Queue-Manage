@@ -5,40 +5,66 @@
 
 /**
  * Calculates estimated wait time in minutes.
+ * Formula: Math.ceil((peopleAhead * averageServiceTime) / activeCounters)
  * @param {number} peopleAhead Number of people waiting ahead in line
  * @param {number} averageServiceTime Average service duration in minutes (default 5)
  * @param {number} activeCounters Number of active counters serving this queue (default 1)
- * @returns {number} Estimated waiting time in minutes (minimum 0)
+ * @returns {number} Estimated waiting time in minutes (0 if 0 people ahead)
  */
 export const calculateEstimatedWaitTime = (
   peopleAhead = 0,
   averageServiceTime = 5,
   activeCounters = 1
 ) => {
-  const safeAhead = Math.max(0, parseInt(peopleAhead, 10) || 0);
-  const safeAvgTime = Math.max(1, parseInt(averageServiceTime, 10) || 5);
-  const safeCounters = Math.max(1, parseInt(activeCounters, 10) || 1);
+  const counters = Math.max(activeCounters || 1, 1);
+  const people = Math.max(peopleAhead || 0, 0);
+  const serviceTime = Math.max(averageServiceTime || 0, 0);
 
-  if (safeAhead === 0) return 0;
+  if (people === 0) return 0;
 
-  const waitMinutes = Math.ceil((safeAhead * safeAvgTime) / safeCounters);
-  return Math.max(1, waitMinutes);
+  return Math.ceil((people * serviceTime) / counters);
+};
+
+/**
+ * Returns user-facing string for estimated wait according to token status and queue depth.
+ * @param {string} status Token status ('waiting', 'called', 'in_service', 'completed', 'cancelled', 'skipped', 'no_show')
+ * @param {number} peopleAhead Number of waiting tokens ahead of the student
+ * @param {number} estimatedWait Dynamically computed estimated wait time
+ * @returns {string} Formatted display string
+ */
+export const getEstimatedWaitDisplay = (status = 'waiting', peopleAhead = 0, estimatedWait = 0) => {
+  const normStatus = (status || '').toLowerCase().replace(/[-\s]/g, '_');
+
+  switch (normStatus) {
+    case 'called':
+      return 'Called — Proceed to Counter';
+    case 'in_service':
+      return 'In Service';
+    case 'completed':
+      return 'Completed';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'skipped':
+      return 'Skipped';
+    case 'no_show':
+      return 'No Show';
+    case 'waiting':
+    default:
+      if (Math.max(peopleAhead || 0, 0) === 0) {
+        return 'Your turn is next';
+      }
+      return `~${Math.max(1, estimatedWait || 0)} min`;
+  }
 };
 
 /**
  * Formats wait time into human readable string.
  * @param {number} minutes 
- * @returns {string} e.g. "12 min" or "< 1 min"
+ * @returns {string} e.g. "~8 min" or "Your turn is next"
  */
 export const formatWaitTime = (minutes) => {
-  if (minutes <= 0) return 'Immediate';
-  if (minutes < 1) return '< 1 min';
-  if (minutes >= 60) {
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs} hr`;
-  }
-  return `${minutes} min`;
+  if (minutes <= 0) return 'Your turn is next';
+  return `~${minutes} min`;
 };
 
 /**

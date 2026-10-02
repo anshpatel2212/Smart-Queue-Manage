@@ -14,6 +14,8 @@ import {
   runTransaction,
   serverTimestamp
 } from '../firebase/firestore';
+import { auth } from '../firebase/config';
+import { getUserProfile } from './userService';
 import { getService } from './serviceService';
 import { calculateEstimatedWaitTime } from '../utils/queueCalculations';
 import { predictWaitingTime } from './mlService';
@@ -107,6 +109,30 @@ export const subscribeServiceTokens = (serviceId, callback) => {
   );
 };
 
+export const subscribeServiceAllTokens = (serviceId, callback) => {
+  if (!serviceId) {
+    callback([]);
+    return () => {};
+  }
+  const q = query(
+    collection(db, 'tokens'),
+    where('serviceId', '==', serviceId)
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => (a.tokenSequence || 0) - (b.tokenSequence || 0));
+      callback(items);
+    },
+    (err) => {
+      console.warn(`All tokens snapshot error for service ${serviceId}:`, err);
+      callback([]);
+    }
+  );
+};
+
 export const subscribeAllActiveTokens = (callback) => {
   const q = query(
     collection(db, 'tokens'),
@@ -159,20 +185,19 @@ export const subscribeAllTokens = (callback, limitCount = 200) => {
 /**
  * Atomic token generation via Firestore Transaction to prevent race conditions & duplicate tokens
  */
-export const joinQueue = async ({ user, serviceId }) => {
+export const joinQueue = async ({ user, serviceId, studentName = 'Guest Student' }) => {
   if (!user || !user.uid) {
-    throw new Error('Please sign in to join a queue.');
+    throw new Error('A valid queue session is required.');
   }
   if (!serviceId) {
     throw new Error('Service ID is required.');
   }
 
-  // 1. Verify student doesn't already have an active token
+  // 1. Check whether student already has an active token
   const existingActive = await getUserActiveToken(user.uid);
   if (existingActive) {
-    throw new Error(
-      `You already have an active token (${existingActive.tokenNumber}) for ${existingActive.serviceName || 'a campus service'}. Please complete or cancel it first.`
-    );
+    // Requirement 6: If an active token already exists, return existing token instead of throwing an error
+    return { ...existingActive, isExisting: true };
   }
 
   // 2. Verify service availability
@@ -390,206 +415,370 @@ export const recalculateQueuePredictions = async (serviceId) => {
   }
 };
 
-export const callNextToken = async (serviceId, staffUser, counterNumber = 1) => {
-  if (!serviceId) throw new Error('Service ID required.');
-
-  // Find next waiting token
-  const q = query(
-    collection(db, 'tokens'),
-    where('serviceId', '==', serviceId),
-    where('status', '==', 'waiting')
-  );
-
-  const snap = await getDocs(q);
-  if (snap.empty) {
-    return null;
+/**
+ * Validates staff authentication and authorization before performing queue operations.
+ */
+export const verifyStaffAuth = async (staffUser = null) => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    const err = new Error('Missing or insufficient permissions: No authenticated user session found.');
+    err.code = 'permission-denied';
+    throw err;
   }
 
-  const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  docs.sort((a, b) => (a.tokenSequence || 0) - (b.tokenSequence || 0));
-  const nextToken = docs[0];
-  const tokenRef = doc(db, 'tokens', nextToken.id);
+  const uid = staffUser?.uid || currentUser.uid;
+  const profile = await getUserProfile(uid, currentUser.email);
+  if (!profile) {
+    const err = new Error(`Missing or insufficient permissions: Profile not found for UID: ${uid}`);
+    err.code = 'permission-denied';
+    throw err;
+  }
 
-  await updateDoc(tokenRef, {
-    status: 'called',
-    calledAt: serverTimestamp(),
-    counterNumber: parseInt(counterNumber, 10) || 1,
-    calledByStaffId: staffUser?.uid || null,
-    updatedAt: serverTimestamp(),
-  });
+  const role = String(profile?.role || '').trim().toLowerCase();
+  const status = String(profile?.status || 'active').trim().toLowerCase();
 
-  // Update currentTokenNumber on queue document
-  const queueRef = doc(db, 'queues', serviceId);
-  await updateDoc(queueRef, {
-    currentTokenNumber: nextToken.tokenNumber,
-    updatedAt: serverTimestamp(),
-  }).catch(() => {});
+  if (role !== 'staff' && role !== 'admin') {
+    const err = new Error(`Missing or insufficient permissions: Detected role "${role}" is not authorized for staff operations.`);
+    err.code = 'permission-denied';
+    throw err;
+  }
 
-  // Notify student
-  await createNotification({
-    userId: nextToken.userId,
-    title: 'Token Called!',
-    message: `Token ${nextToken.tokenNumber} is now being called! Please proceed immediately to Counter ${counterNumber}.`,
-    type: 'alert',
-  });
+  if (status === 'inactive') {
+    const err = new Error('Staff account is inactive. Please contact administrator.');
+    err.code = 'permission-denied';
+    throw err;
+  }
 
-  // Recalculate ML predictions for remaining waiting tokens asynchronously
-  recalculateQueuePredictions(serviceId).catch(err => 
-    console.warn('Queue recalculation failed:', err)
-  );
+  return { uid, profile, role, status };
+};
 
-  return { id: nextToken.id, ...nextToken, status: 'called', counterNumber };
+export const callNextToken = async (serviceId, staffUser, counterNumber = 1, specificTokenId = null) => {
+  try {
+    await verifyStaffAuth(staffUser);
+
+    let nextToken = null;
+
+    if (specificTokenId) {
+      const tRef = doc(db, 'tokens', specificTokenId);
+      const snap = await getDoc(tRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.status === 'waiting' || data.status === 'called') {
+          nextToken = { id: snap.id, ...data };
+        }
+      }
+    }
+
+    if (!nextToken) {
+      // Find next waiting token: if serviceId is provided and not 'all', query for that service; otherwise query across all services
+      let q;
+      if (serviceId && serviceId !== 'all') {
+        q = query(
+          collection(db, 'tokens'),
+          where('serviceId', '==', serviceId),
+          where('status', '==', 'waiting')
+        );
+      } else {
+        q = query(
+          collection(db, 'tokens'),
+          where('status', '==', 'waiting')
+        );
+      }
+
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        return null;
+      }
+
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort by createdAt ascending (oldest waiting token first)
+      docs.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis
+          ? a.createdAt.toMillis()
+          : a.createdAt?.seconds
+          ? a.createdAt.seconds * 1000
+          : a.createdAt
+          ? new Date(a.createdAt).getTime()
+          : 0;
+        const timeB = b.createdAt?.toMillis
+          ? b.createdAt.toMillis()
+          : b.createdAt?.seconds
+          ? b.createdAt.seconds * 1000
+          : b.createdAt
+          ? new Date(b.createdAt).getTime()
+          : 0;
+        if (timeA !== timeB) return timeA - timeB;
+        return (a.tokenSequence || 0) - (b.tokenSequence || 0);
+      });
+      nextToken = docs[0];
+    }
+
+    const tokenRef = doc(db, 'tokens', nextToken.id);
+    const assignedCounter = parseInt(counterNumber, 10) || staffUser?.counter || 1;
+
+    await updateDoc(tokenRef, {
+      status: 'called',
+      calledAt: serverTimestamp(),
+      counterNumber: assignedCounter,
+      calledByStaffId: staffUser?.uid || auth.currentUser?.uid || null,
+      updatedAt: serverTimestamp(),
+    });
+
+    // Update currentTokenNumber on queue document
+    const targetServiceId = nextToken.serviceId || serviceId;
+    if (targetServiceId) {
+      const queueRef = doc(db, 'queues', targetServiceId);
+      await updateDoc(queueRef, {
+        currentTokenNumber: nextToken.tokenNumber,
+        updatedAt: serverTimestamp(),
+      }).catch((err) => {
+        console.warn('Queue doc update warning:', err);
+      });
+    }
+
+    // Notify student
+    if (nextToken.userId) {
+      await createNotification({
+        userId: nextToken.userId,
+        title: 'Token Called!',
+        message: `Token ${nextToken.tokenNumber} is now being called! Please proceed immediately to Counter ${assignedCounter}.`,
+        type: 'alert',
+      }).catch((err) => console.warn('Notification warning:', err));
+    }
+
+    // Recalculate ML predictions for remaining waiting tokens asynchronously
+    if (targetServiceId) {
+      recalculateQueuePredictions(targetServiceId).catch(err => 
+        console.warn('Queue recalculation failed:', err)
+      );
+    }
+
+    return { id: nextToken.id, ...nextToken, status: 'called', counterNumber: assignedCounter };
+  } catch (error) {
+    console.error("STAFF QUEUE ERROR:", error);
+    console.error("ERROR CODE:", error?.code);
+    console.error("ERROR MESSAGE:", error?.message);
+    throw error;
+  }
 };
 
 export const startService = async (tokenId, staffUser, counterNumber = 1) => {
-  if (!tokenId) throw new Error('Token ID is required.');
-  const tokenRef = doc(db, 'tokens', tokenId);
-  const snap = await getDoc(tokenRef);
-  if (!snap.exists()) throw new Error('Token not found.');
+  try {
+    await verifyStaffAuth(staffUser);
 
-  const tokenData = snap.data();
+    if (!tokenId) throw new Error('Token ID is required.');
+    const tokenRef = doc(db, 'tokens', tokenId);
+    const snap = await getDoc(tokenRef);
+    if (!snap.exists()) throw new Error('Token not found.');
 
-  await updateDoc(tokenRef, {
-    status: 'in_service',
-    serviceStartedAt: serverTimestamp(),
-    counterNumber: parseInt(counterNumber, 10) || tokenData.counterNumber || 1,
-    calledByStaffId: staffUser?.uid || tokenData.calledByStaffId,
-    updatedAt: serverTimestamp(),
-  });
+    const tokenData = snap.data();
 
-  await createNotification({
-    userId: tokenData.userId,
-    title: 'Service Started',
-    message: `Your appointment for ${tokenData.serviceName} has started at Counter ${counterNumber}.`,
-    type: 'info',
-  });
+    if (tokenData.status === 'in_service') {
+      return { id: tokenId, ...tokenData };
+    }
+    if (tokenData.status === 'completed') {
+      throw new Error('Token has already been completed.');
+    }
+    if (tokenData.status === 'cancelled') {
+      throw new Error('Token has already been cancelled.');
+    }
 
-  return { id: tokenId, ...tokenData, status: 'in_service' };
+    const assignedCounter = parseInt(counterNumber, 10) || tokenData.counterNumber || staffUser?.counter || 1;
+
+    const updatePayload = {
+      status: 'in_service',
+      serviceStartedAt: tokenData.serviceStartedAt || serverTimestamp(),
+      counterNumber: assignedCounter,
+      calledByStaffId: staffUser?.uid || auth.currentUser?.uid || tokenData.calledByStaffId || null,
+      updatedAt: serverTimestamp(),
+    };
+
+    if (!tokenData.calledAt) {
+      updatePayload.calledAt = serverTimestamp();
+    }
+
+    await updateDoc(tokenRef, updatePayload);
+
+    if (tokenData.userId) {
+      await createNotification({
+        userId: tokenData.userId,
+        title: 'Service Started',
+        message: `Your appointment for ${tokenData.serviceName || 'service'} has started at Counter ${assignedCounter}.`,
+        type: 'info',
+      }).catch((err) => console.warn('Notification warning:', err));
+    }
+
+    return { id: tokenId, ...tokenData, ...updatePayload, status: 'in_service' };
+  } catch (error) {
+    console.error("STAFF QUEUE ERROR:", error);
+    console.error("ERROR CODE:", error?.code);
+    console.error("ERROR MESSAGE:", error?.message);
+    throw error;
+  }
 };
 
 export const completeService = async (tokenId, staffUser) => {
-  if (!tokenId) throw new Error('Token ID is required.');
-  const tokenRef = doc(db, 'tokens', tokenId);
-  const snap = await getDoc(tokenRef);
-  if (!snap.exists()) throw new Error('Token not found.');
+  try {
+    await verifyStaffAuth(staffUser);
 
-  const tokenData = snap.data();
-  const now = new Date();
+    if (!tokenId) throw new Error('Token ID is required.');
+    const tokenRef = doc(db, 'tokens', tokenId);
+    const snap = await getDoc(tokenRef);
+    if (!snap.exists()) throw new Error('Token not found.');
 
-  // Calculate waiting time & service time in minutes
-  const createdAtDate = tokenData.createdAt?.toDate ? tokenData.createdAt.toDate() : new Date();
-  const startedDate = tokenData.serviceStartedAt?.toDate ? tokenData.serviceStartedAt.toDate() : createdAtDate;
-  
-  const waitingMinutes = Math.max(1, Math.round((startedDate.getTime() - createdAtDate.getTime()) / 60000));
-  const serviceMinutes = Math.max(1, Math.round((now.getTime() - startedDate.getTime()) / 60000));
+    const tokenData = snap.data();
+    if (tokenData.status === 'completed') {
+      return true;
+    }
 
-  await updateDoc(tokenRef, {
-    status: 'completed',
-    completedAt: serverTimestamp(),
-    waitingTime: waitingMinutes,
-    serviceTime: serviceMinutes,
-    updatedAt: serverTimestamp(),
-  });
+    const now = new Date();
 
-  // Archive in history
-  await createHistoryRecord({
-    ...tokenData,
-    id: tokenId,
-    status: 'completed',
-    waitingTime: waitingMinutes,
-    serviceTime: serviceMinutes,
-    calledByStaffId: staffUser?.uid || tokenData.calledByStaffId,
-  });
+    // Calculate waiting time & service time in minutes
+    const createdAtDate = tokenData.createdAt?.toDate ? tokenData.createdAt.toDate() : new Date();
+    const startedDate = tokenData.serviceStartedAt?.toDate ? tokenData.serviceStartedAt.toDate() : (tokenData.calledAt?.toDate ? tokenData.calledAt.toDate() : createdAtDate);
+    
+    const waitingMinutes = Math.max(1, Math.round((startedDate.getTime() - createdAtDate.getTime()) / 60000));
+    const serviceMinutes = Math.max(1, Math.round((now.getTime() - startedDate.getTime()) / 60000));
 
-  // Notify student
-  await createNotification({
-    userId: tokenData.userId,
-    title: 'Service Completed',
-    message: `Your service for ${tokenData.serviceName} has been marked completed. Thank you!`,
-    type: 'success',
-  });
+    await updateDoc(tokenRef, {
+      status: 'completed',
+      completedAt: serverTimestamp(),
+      waitingTime: waitingMinutes,
+      serviceTime: serviceMinutes,
+      updatedAt: serverTimestamp(),
+    });
 
-  // Recalculate waiting tokens ML predictions
-  if (tokenData.serviceId) {
-    recalculateQueuePredictions(tokenData.serviceId).catch(err => 
-      console.warn('Queue recalculation failed:', err)
-    );
+    // Archive in history
+    await createHistoryRecord({
+      ...tokenData,
+      id: tokenId,
+      status: 'completed',
+      waitingTime: waitingMinutes,
+      serviceTime: serviceMinutes,
+      calledByStaffId: staffUser?.uid || auth.currentUser?.uid || tokenData.calledByStaffId,
+    }).catch(err => console.warn('History creation warning:', err));
+
+    // Notify student
+    if (tokenData.userId) {
+      await createNotification({
+        userId: tokenData.userId,
+        title: 'Service Completed',
+        message: `Your service for ${tokenData.serviceName || 'campus service'} has been marked completed. Thank you!`,
+        type: 'success',
+      }).catch(err => console.warn('Notification warning:', err));
+    }
+
+    // Recalculate waiting tokens ML predictions
+    if (tokenData.serviceId) {
+      recalculateQueuePredictions(tokenData.serviceId).catch(err => 
+        console.warn('Queue recalculation failed:', err)
+      );
+    }
+
+    return true;
+  } catch (error) {
+    console.error("STAFF QUEUE ERROR:", error);
+    console.error("ERROR CODE:", error?.code);
+    console.error("ERROR MESSAGE:", error?.message);
+    throw error;
   }
-
-  return true;
 };
 
 export const skipToken = async (tokenId, staffUser, reason = 'No show') => {
-  if (!tokenId) throw new Error('Token ID is required.');
-  const tokenRef = doc(db, 'tokens', tokenId);
-  const snap = await getDoc(tokenRef);
-  if (!snap.exists()) throw new Error('Token not found.');
+  try {
+    await verifyStaffAuth(staffUser);
 
-  const tokenData = snap.data();
+    if (!tokenId) throw new Error('Token ID is required.');
+    const tokenRef = doc(db, 'tokens', tokenId);
+    const snap = await getDoc(tokenRef);
+    if (!snap.exists()) throw new Error('Token not found.');
 
-  await updateDoc(tokenRef, {
-    status: 'skipped',
-    skipReason: reason,
-    updatedAt: serverTimestamp(),
-  });
+    const tokenData = snap.data();
 
-  await createHistoryRecord({
-    ...tokenData,
-    id: tokenId,
-    status: 'skipped',
-  });
+    await updateDoc(tokenRef, {
+      status: 'skipped',
+      skipReason: reason,
+      updatedAt: serverTimestamp(),
+    });
 
-  await createNotification({
-    userId: tokenData.userId,
-    title: 'Token Skipped',
-    message: `Your token ${tokenData.tokenNumber} was skipped (${reason}). Please visit counter staff if you are present.`,
-    type: 'alert',
-  });
+    await createHistoryRecord({
+      ...tokenData,
+      id: tokenId,
+      status: 'skipped',
+      skipReason: reason,
+      calledByStaffId: staffUser?.uid || auth.currentUser?.uid || tokenData.calledByStaffId,
+    }).catch(err => console.warn('History creation warning:', err));
 
-  if (tokenData.serviceId) {
-    recalculateQueuePredictions(tokenData.serviceId).catch(err => 
-      console.warn('Queue recalculation failed:', err)
-    );
+    if (tokenData.userId) {
+      await createNotification({
+        userId: tokenData.userId,
+        title: 'Token Skipped',
+        message: `Your token ${tokenData.tokenNumber} was marked skipped (${reason}). Please visit counter staff if you are present.`,
+        type: 'alert',
+      }).catch(err => console.warn('Notification warning:', err));
+    }
+
+    if (tokenData.serviceId) {
+      recalculateQueuePredictions(tokenData.serviceId).catch(err => 
+        console.warn('Queue recalculation failed:', err)
+      );
+    }
+
+    return true;
+  } catch (error) {
+    console.error("STAFF QUEUE ERROR:", error);
+    console.error("ERROR CODE:", error?.code);
+    console.error("ERROR MESSAGE:", error?.message);
+    throw error;
   }
-
-  return true;
 };
 
-export const staffCancelToken = async (tokenId, staffUser, reason = 'Cancelled by staff') => {
-  if (!tokenId) throw new Error('Token ID is required.');
-  const tokenRef = doc(db, 'tokens', tokenId);
-  const snap = await getDoc(tokenRef);
-  if (!snap.exists()) throw new Error('Token not found.');
+export const staffCancelToken = async (tokenId, staffUser, reason = 'Cancelled by counter operator') => {
+  try {
+    await verifyStaffAuth(staffUser);
 
-  const tokenData = snap.data();
+    if (!tokenId) throw new Error('Token ID is required.');
+    const tokenRef = doc(db, 'tokens', tokenId);
+    const snap = await getDoc(tokenRef);
+    if (!snap.exists()) throw new Error('Token not found.');
 
-  await updateDoc(tokenRef, {
-    status: 'cancelled',
-    cancelledAt: serverTimestamp(),
-    cancelReason: reason,
-    updatedAt: serverTimestamp(),
-  });
+    const tokenData = snap.data();
 
-  await createHistoryRecord({
-    ...tokenData,
-    id: tokenId,
-    status: 'cancelled',
-    cancelReason: reason,
-    calledByStaffId: staffUser?.uid || null,
-  });
+    await updateDoc(tokenRef, {
+      status: 'cancelled',
+      cancelledAt: serverTimestamp(),
+      cancelReason: reason,
+      updatedAt: serverTimestamp(),
+    });
 
-  await createNotification({
-    userId: tokenData.userId,
-    title: 'Queue Cancelled by Staff',
-    message: `Your token ${tokenData.tokenNumber} for ${tokenData.serviceName} was cancelled by staff (${reason}).`,
-    type: 'alert',
-  });
+    await createHistoryRecord({
+      ...tokenData,
+      id: tokenId,
+      status: 'cancelled',
+      cancelReason: reason,
+      calledByStaffId: staffUser?.uid || auth.currentUser?.uid || tokenData.calledByStaffId,
+    }).catch(err => console.warn('History creation warning:', err));
 
-  if (tokenData.serviceId) {
-    recalculateQueuePredictions(tokenData.serviceId).catch(err => 
-      console.warn('Queue recalculation failed:', err)
-    );
+    if (tokenData.userId) {
+      await createNotification({
+        userId: tokenData.userId,
+        title: 'Queue Cancelled by Staff',
+        message: `Your token ${tokenData.tokenNumber} for ${tokenData.serviceName || 'service'} was cancelled by staff (${reason}).`,
+        type: 'alert',
+      }).catch(err => console.warn('Notification warning:', err));
+    }
+
+    if (tokenData.serviceId) {
+      recalculateQueuePredictions(tokenData.serviceId).catch(err => 
+        console.warn('Queue recalculation failed:', err)
+      );
+    }
+
+    return true;
+  } catch (error) {
+    console.error("STAFF QUEUE ERROR:", error);
+    console.error("ERROR CODE:", error?.code);
+    console.error("ERROR MESSAGE:", error?.message);
+    throw error;
   }
-
-  return true;
 };

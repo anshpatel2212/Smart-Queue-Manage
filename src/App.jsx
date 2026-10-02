@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import PublicLayout from './layouts/PublicLayout';
@@ -55,8 +56,8 @@ const App = () => {
           <Route path="/register" element={<RegisterPage />} />
         </Route>
 
-        {/* Student Routes */}
-        <Route path="/student" element={<ProtectedRoute allowedRoles={['student']}><DashboardLayout role="student" /></ProtectedRoute>}>
+        {/* Student Routes (Public, No Login Required) */}
+        <Route path="/student" element={<DashboardLayout role="student" />}>
           <Route index element={<StudentDashboard />} />
           <Route path="services" element={<ServicesPage />} />
           <Route path="join-queue/:serviceId" element={<JoinQueuePage />} />
@@ -68,11 +69,12 @@ const App = () => {
         </Route>
 
         {/* Staff Routes */}
-        <Route path="/staff" element={<ProtectedRoute allowedRoles={['staff']}><DashboardLayout role="staff" /></ProtectedRoute>}>
+        <Route path="/staff" element={<ProtectedRoute allowedRoles={['staff', 'admin']}><DashboardLayout role="staff" /></ProtectedRoute>}>
           <Route index element={<StaffDashboard />} />
           <Route path="live-queue" element={<LiveQueuePage />} />
           <Route path="counter" element={<CounterPage />} />
           <Route path="history" element={<StaffHistoryPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           <Route path="profile" element={<StaffProfile />} />
           <Route path="ai-assistant" element={<AIAssistantPage />} />
         </Route>

@@ -75,6 +75,13 @@ const DashboardLayout = ({ role }) => {
               className="flex items-center gap-2 group"
               aria-label="View profile"
             >
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                role === 'admin' ? 'bg-purple-100 text-purple-700' :
+                role === 'staff' ? 'bg-[#EEF9F7] text-[#168C82]' :
+                'bg-gray-100 text-gray-700'
+              }`}>
+                {role}
+              </span>
               {user?.photoURL ? (
                 <img src={user.photoURL} alt={user.name || 'User'} className="w-9 h-9 rounded-full object-cover border border-[#E5E9E7]" />
               ) : (

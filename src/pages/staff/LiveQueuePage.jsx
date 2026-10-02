@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Play, SkipForward, XCircle, Search, Layers } from 'lucide-react';
+import { Play, SkipForward, XCircle, Search, Layers, Phone, CheckCircle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useServices } from '../../hooks/useServices';
 import { 
   subscribeAllActiveTokens, 
   subscribeServiceTokens, 
+  callNextToken,
   startService, 
+  completeService,
   skipToken, 
   staffCancelToken 
 } from '../../services/tokenService';
@@ -71,7 +73,19 @@ const LiveQueuePage = () => {
     setTimeout(() => setActionMsg(''), 4000);
   };
 
-  const handleServe = async (tokenId) => {
+  const handleCallNext = async (tokenId, serviceId) => {
+    setActionLoading(true);
+    try {
+      await callNextToken(serviceId, user, user?.counter || 1, tokenId);
+      showFeedback(`Token called at Counter ${user?.counter || 1}.`);
+    } catch (err) {
+      showFeedback(`Error: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleStartService = async (tokenId) => {
     setActionLoading(true);
     try {
       await startService(tokenId, user, user?.counter || 1);
@@ -81,6 +95,25 @@ const LiveQueuePage = () => {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleComplete = async (tokenId) => {
+    setActionLoading(true);
+    try {
+      await completeService(tokenId, user);
+      showFeedback('Token marked as completed.');
+    } catch (err) {
+      showFeedback(`Error: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleServe = async (tokenId, item) => {
+    if (item?.status === 'waiting') {
+      return handleCallNext(tokenId, item.serviceId);
+    }
+    return handleStartService(tokenId);
   };
 
   const handleSkip = async (tokenId) => {
@@ -180,7 +213,7 @@ const LiveQueuePage = () => {
               </h2>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-6 md:gap-12">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 md:gap-12">
             <div>
               <p className="text-sm opacity-80 mb-1">Student</p>
               <p className="font-semibold text-lg">{currentlyServingToken?.userName || '—'}</p>
@@ -193,6 +226,28 @@ const LiveQueuePage = () => {
               <p className="text-sm opacity-80 mb-1">Duration</p>
               <p className="font-semibold text-lg font-mono">{currentlyServingToken ? formatTimer(timerSeconds) : '00:00'}</p>
             </div>
+            {currentlyServingToken && (
+              <div className="flex items-center gap-2 pt-2 sm:pt-0">
+                {currentlyServingToken.status === 'called' && (
+                  <button
+                    disabled={actionLoading}
+                    onClick={() => handleStartService(currentlyServingToken.id)}
+                    className="px-4 py-2 bg-white text-[#168C82] font-semibold text-sm rounded-lg hover:bg-[#EEF9F7] transition shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Play className="w-4 h-4 fill-current" /> Start Service
+                  </button>
+                )}
+                {currentlyServingToken.status === 'in_service' && (
+                  <button
+                    disabled={actionLoading}
+                    onClick={() => handleComplete(currentlyServingToken.id)}
+                    className="px-4 py-2 bg-[#1B9A72] text-white font-semibold text-sm rounded-lg hover:bg-[#147959] transition shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50 border border-white/20"
+                  >
+                    <CheckCircle className="w-4 h-4" /> Complete
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -283,22 +338,24 @@ const LiveQueuePage = () => {
                         <>
                           <button 
                             disabled={actionLoading}
-                            onClick={() => handleServe(item.id)}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-[#EEF9F7] text-[#168C82] hover:bg-[#168C82] hover:text-white rounded-lg transition-colors font-medium text-xs shadow-sm"
+                            onClick={() => handleCallNext(item.id, item.serviceId)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-[#EEF9F7] text-[#168C82] hover:bg-[#168C82] hover:text-white rounded-lg transition-colors font-medium text-xs shadow-sm cursor-pointer disabled:opacity-50"
+                            title="Call Next Token"
                           >
-                            <Play className="w-3.5 h-3.5" /> Serve
+                            <Phone className="w-3.5 h-3.5" /> Call Next
                           </button>
                           <button 
                             disabled={actionLoading}
                             onClick={() => handleSkip(item.id)}
-                            className="flex items-center gap-1 px-3 py-1.5 border border-[#E5E9E7] text-[#E7A93B] hover:bg-amber-50 rounded-lg transition-colors font-medium text-xs"
+                            className="flex items-center gap-1 px-3 py-1.5 border border-[#E5E9E7] text-[#E7A93B] hover:bg-amber-50 rounded-lg transition-colors font-medium text-xs cursor-pointer disabled:opacity-50"
+                            title="Skip Token"
                           >
                             <SkipForward className="w-3.5 h-3.5" /> Skip
                           </button>
                           <button 
                             disabled={actionLoading}
                             onClick={() => handleCancel(item.id)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 border border-[#E5E9E7] text-[#D95C5C] hover:bg-red-50 rounded-lg transition-colors text-xs"
+                            className="flex items-center gap-1 px-2.5 py-1.5 border border-[#E5E9E7] text-[#D95C5C] hover:bg-red-50 rounded-lg transition-colors text-xs cursor-pointer disabled:opacity-50"
                             title="Cancel Token"
                           >
                             <XCircle className="w-3.5 h-3.5" />
@@ -306,17 +363,58 @@ const LiveQueuePage = () => {
                         </>
                       )}
                       {item.status === 'called' && (
-                        <button 
-                          disabled={actionLoading}
-                          onClick={() => handleServe(item.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-[#168C82] text-white hover:bg-[#127a71] rounded-lg transition-colors font-medium text-xs"
-                        >
-                          <Play className="w-3.5 h-3.5" /> Begin
-                        </button>
+                        <>
+                          <button 
+                            disabled={actionLoading}
+                            onClick={() => handleStartService(item.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-[#168C82] text-white hover:bg-[#127a71] rounded-lg transition-colors font-medium text-xs shadow-sm cursor-pointer disabled:opacity-50"
+                            title="Start Service"
+                          >
+                            <Play className="w-3.5 h-3.5" /> Start Service
+                          </button>
+                          <button 
+                            disabled={actionLoading}
+                            onClick={() => handleSkip(item.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 border border-[#E5E9E7] text-[#E7A93B] hover:bg-amber-50 rounded-lg transition-colors font-medium text-xs cursor-pointer disabled:opacity-50"
+                            title="Skip Token"
+                          >
+                            <SkipForward className="w-3.5 h-3.5" /> Skip
+                          </button>
+                        </>
                       )}
                       {item.status === 'in_service' && (
-                        <span className="text-[#168C82] font-medium text-xs bg-[#EEF9F7] px-2.5 py-1 rounded-md">
-                          Serving at Counter
+                        <>
+                          <button 
+                            disabled={actionLoading}
+                            onClick={() => handleComplete(item.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-[#1B9A72] text-white hover:bg-[#147959] rounded-lg transition-colors font-medium text-xs shadow-sm cursor-pointer disabled:opacity-50"
+                            title="Complete Service"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" /> Complete
+                          </button>
+                          <button 
+                            disabled={actionLoading}
+                            onClick={() => handleSkip(item.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 border border-[#E5E9E7] text-[#E7A93B] hover:bg-amber-50 rounded-lg transition-colors font-medium text-xs cursor-pointer disabled:opacity-50"
+                            title="Skip Token"
+                          >
+                            <SkipForward className="w-3.5 h-3.5" /> Skip
+                          </button>
+                        </>
+                      )}
+                      {item.status === 'completed' && (
+                        <span className="text-[#1B9A72] font-medium text-xs bg-[#EEF9F7] px-2.5 py-1 rounded-md">
+                          Completed
+                        </span>
+                      )}
+                      {item.status === 'skipped' && (
+                        <span className="text-[#E7A93B] font-medium text-xs bg-amber-50 px-2.5 py-1 rounded-md">
+                          Skipped
+                        </span>
+                      )}
+                      {item.status === 'cancelled' && (
+                        <span className="text-[#D95C5C] font-medium text-xs bg-red-50 px-2.5 py-1 rounded-md">
+                          Cancelled
                         </span>
                       )}
                     </div>

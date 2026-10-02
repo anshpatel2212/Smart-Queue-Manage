@@ -49,7 +49,9 @@ const StudentDashboard = () => {
     }
   };
 
-  const studentFirstName = user?.name?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'Student';
+  const studentFirstName = user?.isAnonymous || user?.role === 'guest'
+    ? 'Student'
+    : (user?.name?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'Student');
 
   return (
     <motion.div 
@@ -113,8 +115,8 @@ const StudentDashboard = () => {
                     {computedData.predictionSource === 'ml' ? 'AI/ML' : 'ETA'}
                   </span>
                 </div>
-                <p className="text-lg font-bold text-[#168C82]">
-                  {computedData.status === 'called' || computedData.status === 'in_service' ? 'Now' : `${computedData.estimatedWait} min`}
+                <p className={`font-bold text-[#168C82] leading-tight ${computedData.estimatedWaitDisplay && computedData.estimatedWaitDisplay.length > 10 ? 'text-sm sm:text-base' : 'text-lg'}`}>
+                  {computedData.estimatedWaitDisplay}
                 </p>
               </div>
               <div className="bg-[#F8FBFA] p-3.5 rounded-xl border border-[#E5E9E7]">

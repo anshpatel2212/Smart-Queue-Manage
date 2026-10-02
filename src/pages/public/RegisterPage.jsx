@@ -75,6 +75,21 @@ const RegisterPage = () => {
           <p className="text-[#667085]">Join SmartQueue to manage your campus queues</p>
         </div>
 
+        <div className="mb-6 p-4 bg-[#EEF9F7] border border-[#168C82]/30 rounded-2xl text-center">
+          <p className="text-sm font-bold text-[#168C82] mb-1">
+            Students do not need an account!
+          </p>
+          <p className="text-xs text-[#667085] mb-3">
+            You can generate digital tokens and track queues directly without registration.
+          </p>
+          <Link
+            to="/student"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#168C82] hover:bg-[#127A71] text-white rounded-xl text-xs font-semibold shadow-xs"
+          >
+            <span>Use Queue as Student</span> &rarr;
+          </Link>
+        </div>
+
         {errorMessage && (
           <div className="mb-6 p-3 bg-red-50 border border-red-200 text-[#D95C5C] text-xs rounded-xl flex items-center gap-2">
             <AlertCircle size={16} className="shrink-0" />
