@@ -550,6 +550,6 @@ flowchart LR
 
 [![Live Demo](https://img.shields.io/badge/🌐%20Try%20It%20Live-smart--queue--manage.web.app-159A8C?style=for-the-badge)](https://smart-queue-manage.web.app/)
 
-Built by [**Ansh Patel**](https://github.com/anshpatel2212) &nbsp;•&nbsp; ⭐ Star the repo if you find it useful!
+ ⭐ Star the repo if you find it useful!
 
 </div>
