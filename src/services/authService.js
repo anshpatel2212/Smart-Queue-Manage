@@ -14,6 +14,9 @@ import {
   createUserProfile,
 } from './userService';
 
+import { db } from '../firebase/config';
+import { doc, setDoc, serverTimestamp } from '../firebase/firestore';
+
 const ALLOWED_ROLES = ['student', 'staff', 'admin'];
 
 /**
@@ -58,16 +61,21 @@ export const formatAuthError = (error) => {
 
 
 /**
- * Register STUDENT
+ * Register STAFF (Requests staff access, sets role='staff', status='pending')
  */
-export const registerUser = async ({
+export const registerStaffUser = async ({
   email,
   password,
   name,
-  departmentId = null,
-  studentId = '',
+  staffId = '',
+  departmentId = '',
 }) => {
   try {
+    if (typeof window !== 'undefined') {
+      window.__isStaffRegistering = true;
+    }
+
+    // 1. Create Firebase Email/Password account
     const cred = await createUserWithEmailAndPassword(
       auth,
       email.trim(),
@@ -76,32 +84,59 @@ export const registerUser = async ({
 
     const user = cred.user;
 
+    // Requirement 23 debugging logs
+    console.log("AUTH USER:", auth.currentUser);
+    console.log("STAFF REGISTRATION UID:", auth.currentUser?.uid);
+    console.log("SELECTED DEPARTMENT:", departmentId);
+
+    // Verify auth session before creating Firestore doc
+    if (!auth.currentUser || auth.currentUser.uid !== user.uid) {
+      throw new Error("Authentication session mismatch during staff registration.");
+    }
+
     if (name) {
       await updateProfile(user, {
         displayName: name.trim(),
-      });
+      }).catch(() => {});
     }
 
-    const profile = await createUserProfile(user.uid, {
+    // Requirement 6: Profile data specification
+    const staffProfile = {
       uid: user.uid,
       name: name.trim(),
-      email: user.email,
-      role: 'student',
-      departmentId: departmentId || null,
-      studentId: studentId.trim(),
-      status: 'active',
-    });
-
-    return {
-      user,
-      profile,
-      role: 'student',
+      email: user.email.toLowerCase().trim(),
+      role: "staff",
+      status: "pending",
+      staffId: staffId.trim(),
+      departmentId: departmentId || '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     };
 
+    const userRef = doc(db, 'users', user.uid);
+    await setDoc(userRef, staffProfile);
+
+    // Sign out immediately so pending user cannot access protected routes
+    await signOut(auth);
+
+    return {
+      success: true,
+      uid: user.uid,
+      email: user.email,
+      name: name.trim(),
+      role: 'staff',
+      status: 'pending',
+    };
   } catch (error) {
+    console.error('STAFF REGISTRATION ERROR:', error);
     throw new Error(formatAuthError(error));
+  } finally {
+    if (typeof window !== 'undefined') {
+      window.__isStaffRegistering = false;
+    }
   }
 };
+
 
 
 /**
@@ -171,6 +206,14 @@ export const loginUser = async (email, password) => {
       .trim()
       .toLowerCase();
 
+    if (status === 'pending') {
+      await signOut(auth);
+
+      throw new Error(
+        'Staff access request pending: Your account is waiting for administrator approval.'
+      );
+    }
+
     if (status === 'inactive') {
       await signOut(auth);
 
@@ -198,7 +241,8 @@ export const loginUser = async (email, password) => {
     if (
       error.message?.startsWith('User profile not found') ||
       error.message?.startsWith('Invalid user role') ||
-      error.message?.startsWith('Your account is inactive')
+      error.message?.startsWith('Your account is inactive') ||
+      error.message?.startsWith('Staff access request pending')
     ) {
       throw error;
     }
@@ -258,6 +302,14 @@ export const loginWithGoogle = async () => {
       .toLowerCase();
 
 
+    if (status === 'pending') {
+      await signOut(auth);
+
+      throw new Error(
+        'Staff access request pending: Your account is waiting for administrator approval.'
+      );
+    }
+
     if (status === 'inactive') {
       await signOut(auth);
 
@@ -284,7 +336,8 @@ export const loginWithGoogle = async () => {
     if (
       error.message?.startsWith('User profile not found') ||
       error.message?.startsWith('Invalid user role') ||
-      error.message?.startsWith('Your account is inactive')
+      error.message?.startsWith('Your account is inactive') ||
+      error.message?.startsWith('Staff access request pending')
     ) {
       throw error;
     }

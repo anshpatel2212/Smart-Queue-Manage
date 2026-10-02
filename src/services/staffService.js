@@ -82,9 +82,15 @@ export const updateStaffMember = async (uid, updateData) => {
   return { id: uid, uid, ...updated.data() };
 };
 
+export const approveStaffMember = async (uid) => {
+  if (!uid) throw new Error('Staff User ID is required.');
+  return updateStaffMember(uid, { status: 'active' });
+};
+
 export const toggleStaffStatus = async (uid, currentStatus) => {
   if (!uid) throw new Error('Staff User ID is required.');
-  const newStatus = (currentStatus === 'active' || currentStatus === 'Active') ? 'offline' : 'active';
+  const norm = String(currentStatus || '').toLowerCase().trim();
+  const newStatus = norm === 'active' ? 'offline' : 'active';
   return updateStaffMember(uid, { status: newStatus });
 };
 

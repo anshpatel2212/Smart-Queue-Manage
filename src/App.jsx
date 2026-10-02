@@ -13,6 +13,7 @@ import FeaturesPage from './pages/public/FeaturesPage';
 import AboutPage from './pages/public/AboutPage';
 import LoginPage from './pages/public/LoginPage';
 import RegisterPage from './pages/public/RegisterPage';
+import StaffRegisterPage from './pages/public/StaffRegisterPage';
 
 // Student Pages
 import StudentDashboard from './pages/student/StudentDashboard';
@@ -53,7 +54,8 @@ const App = () => {
           <Route path="/features" element={<FeaturesPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/staff-register" element={<StaffRegisterPage />} />
+          <Route path="/register" element={<StaffRegisterPage />} />
         </Route>
 
         {/* Student Routes (Public, No Login Required) */}

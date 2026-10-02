@@ -24,6 +24,11 @@ export const AuthProvider = ({ children }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!isMounted) return;
 
+      // If staff registration is currently in progress, do not interfere or trigger premature signOut
+      if (typeof window !== 'undefined' && window.__isStaffRegistering) {
+        return;
+      }
+
       if (firebaseUser) {
         // CASE A: Anonymous Student User
         if (firebaseUser.isAnonymous) {
@@ -45,7 +50,12 @@ export const AuthProvider = ({ children }) => {
         // CASE B: Permanent Staff or Admin User
         try {
           setLoading(true);
-          const profile = await getUserProfile(firebaseUser.uid, firebaseUser.email);
+          let profile = await getUserProfile(firebaseUser.uid, firebaseUser.email);
+          if (!profile) {
+            // Short grace period in case Firestore write is completing
+            await new Promise((res) => setTimeout(res, 350));
+            profile = await getUserProfile(firebaseUser.uid, firebaseUser.email);
+          }
           
           if (!profile) {
             console.warn('[AuthContext] Staff/Admin profile not found for UID:', firebaseUser.uid);
@@ -72,6 +82,17 @@ export const AuthProvider = ({ children }) => {
             return;
           }
           profile.role = rawRole;
+
+          if (profile.status === 'pending') {
+            await signOut(auth);
+            if (isMounted) {
+              setCurrentUser(null);
+              setUserProfile(null);
+              setAuthError('Your staff account is pending administrator approval.');
+              setLoading(false);
+            }
+            return;
+          }
 
           if (profile.status === 'inactive') {
             await signOut(auth);

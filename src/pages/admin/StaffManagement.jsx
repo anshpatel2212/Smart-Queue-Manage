@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Edit2, UserX, UserCheck, X, Loader2 } from 'lucide-react';
+import { Search, Edit2, UserX, UserCheck, X, Loader2, CheckCircle2 } from 'lucide-react';
 import { useAdminStaff } from '../../hooks/useAdminStaff';
 
 const StaffManagement = () => {
@@ -9,7 +9,8 @@ const StaffManagement = () => {
     departments, 
     loading: fetching, 
     updateStaff, 
-    toggleStatus 
+    toggleStatus,
+    approveStaff
   } = useAdminStaff();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -17,6 +18,7 @@ const StaffManagement = () => {
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDeptFilter, setSelectedDeptFilter] = useState('ALL');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
   const [feedback, setFeedback] = useState('');
 
   const [formData, setFormData] = useState({
@@ -81,6 +83,16 @@ const StaffManagement = () => {
     }
   };
 
+  const handleApprove = async (staff) => {
+    const targetUid = staff.uid || staff.id;
+    try {
+      await approveStaff(targetUid);
+      showMsg(`Staff account for "${staff.name || 'Staff'}" approved and activated!`);
+    } catch (err) {
+      alert(err.message || 'Failed to approve staff account.');
+    }
+  };
+
   const handleToggleStatus = async (staff) => {
     const targetUid = staff.uid || staff.id;
     try {
@@ -92,6 +104,12 @@ const StaffManagement = () => {
   };
 
   const filteredStaff = staffMembers.filter(staff => {
+    const currentStatus = String(staff.status || 'active').toLowerCase().trim();
+    if (selectedStatusFilter !== 'ALL') {
+      if (selectedStatusFilter === 'pending' && currentStatus !== 'pending') return false;
+      if (selectedStatusFilter === 'active' && currentStatus !== 'active') return false;
+      if (selectedStatusFilter === 'offline' && currentStatus !== 'offline' && currentStatus !== 'inactive') return false;
+    }
     if (selectedDeptFilter !== 'ALL') {
       const matchDept = (staff.departmentId || staff.department || '').toLowerCase() === selectedDeptFilter.toLowerCase();
       if (!matchDept) return false;
@@ -100,7 +118,8 @@ const StaffManagement = () => {
       const q = searchQuery.toLowerCase();
       const matchName = staff.name?.toLowerCase().includes(q);
       const matchEmail = staff.email?.toLowerCase().includes(q);
-      if (!matchName && !matchEmail) return false;
+      const matchId = staff.staffId?.toLowerCase().includes(q);
+      if (!matchName && !matchEmail && !matchId) return false;
     }
     return true;
   });
@@ -115,38 +134,51 @@ const StaffManagement = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-[#172033]">Staff Management</h1>
-          <p className="text-[#667085] mt-1">Manage counter staff accounts, roles, and department assignments in real time</p>
+          <p className="text-[#667085] mt-1">Review staff access requests, approve pending accounts, and manage counters</p>
         </div>
       </div>
 
       {feedback && (
-        <div className="p-3 bg-[#EEF9F7] text-[#168C82] border border-[#168C82]/20 rounded-xl text-sm font-semibold">
-          {feedback}
+        <div className="p-3 bg-[#EEF9F7] text-[#168C82] border border-[#168C82]/20 rounded-xl text-sm font-semibold flex items-center gap-2">
+          <CheckCircle2 size={18} className="text-[#168C82]" />
+          <span>{feedback}</span>
         </div>
       )}
 
       <div className="bg-white border border-[#E5E9E7] rounded-xl shadow-sm overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-[#E5E9E7] flex flex-col sm:flex-row justify-between items-center gap-4 bg-[#F8FBFA]">
-          <div className="relative w-full sm:w-80">
+        <div className="p-4 border-b border-[#E5E9E7] flex flex-col md:flex-row justify-between items-center gap-4 bg-[#F8FBFA]">
+          <div className="relative w-full md:w-80">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#667085]" />
             <input 
               type="text" 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, email, or role..." 
+              placeholder="Search by name, email, or staff ID..." 
               className="w-full pl-9 pr-4 py-2 rounded-lg border border-[#E5E9E7] text-sm focus:outline-none focus:border-[#168C82] bg-white"
             />
           </div>
-          <select 
-            value={selectedDeptFilter}
-            onChange={(e) => setSelectedDeptFilter(e.target.value)}
-            className="px-4 py-2 bg-white border border-[#E5E9E7] rounded-lg text-sm text-[#172033] focus:outline-none focus:border-[#168C82]"
-          >
-            <option value="ALL">All Departments</option>
-            {departments.map((dept) => (
-              <option key={dept.id} value={dept.id}>{dept.name}</option>
-            ))}
-          </select>
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <select 
+              value={selectedStatusFilter}
+              onChange={(e) => setSelectedStatusFilter(e.target.value)}
+              className="px-4 py-2 bg-white border border-[#E5E9E7] rounded-lg text-sm text-[#172033] focus:outline-none focus:border-[#168C82]"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="pending">Pending Approval</option>
+              <option value="active">Active</option>
+              <option value="offline">Offline / Inactive</option>
+            </select>
+            <select 
+              value={selectedDeptFilter}
+              onChange={(e) => setSelectedDeptFilter(e.target.value)}
+              className="px-4 py-2 bg-white border border-[#E5E9E7] rounded-lg text-sm text-[#172033] focus:outline-none focus:border-[#168C82]"
+            >
+              <option value="ALL">All Departments</option>
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>{dept.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {fetching && staffMembers.length === 0 ? (
@@ -159,7 +191,7 @@ const StaffManagement = () => {
             <table className="w-full text-left border-collapse min-w-[900px]">
               <thead>
                 <tr className="bg-white text-sm text-[#667085] border-b border-[#E5E9E7]">
-                  <th className="p-4 font-medium">Name</th>
+                  <th className="p-4 font-medium">Name &amp; ID</th>
                   <th className="p-4 font-medium">Email</th>
                   <th className="p-4 font-medium">Department</th>
                   <th className="p-4 font-medium">Role</th>
@@ -170,19 +202,27 @@ const StaffManagement = () => {
               </thead>
               <tbody className="divide-y divide-[#E5E9E7]">
                 {filteredStaff.map((staff) => {
-                  const isActive = staff.status === 'active' || staff.status === 'Active';
+                  const normStatus = String(staff.status || 'active').toLowerCase().trim();
+                  const isActive = normStatus === 'active';
+                  const isPending = normStatus === 'pending';
                   const initials = staff.name ? staff.name.split(' ').map(n => n[0]).join('').substring(0, 2) : 'S';
 
                   return (
                     <tr key={staff.uid || staff.id} className="hover:bg-gray-50 transition-colors text-sm">
                       <td className="p-4 font-medium text-[#172033]">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-[#168C82]/10 text-[#168C82] flex items-center justify-center font-bold text-xs uppercase">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase ${
+                            isPending 
+                              ? 'bg-amber-100 text-amber-700' 
+                              : 'bg-[#168C82]/10 text-[#168C82]'
+                          }`}>
                             {initials}
                           </div>
                           <div>
                             <div>{staff.name || 'Staff Member'}</div>
-                            <div className="text-xs text-[#667085] font-mono">{staff.uid ? staff.uid.substring(0, 10) + '...' : ''}</div>
+                            <div className="text-xs text-[#667085]">
+                              {staff.staffId ? `ID: ${staff.staffId}` : (staff.uid ? staff.uid.substring(0, 10) + '...' : '')}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -194,13 +234,25 @@ const StaffManagement = () => {
                         <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
                           isActive 
                             ? 'bg-[#EEF9F7] text-[#1B9A72]' 
+                            : isPending
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
                             : 'bg-gray-100 text-[#667085]'
                         }`}>
-                          {(staff.status || 'active').toUpperCase()}
+                          {isPending ? 'PENDING APPROVAL' : (staff.status || 'active').toUpperCase()}
                         </span>
                       </td>
                       <td className="p-4">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end items-center gap-2">
+                          {isPending && (
+                            <button
+                              onClick={() => handleApprove(staff)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#EEF9F7] text-[#168C82] hover:bg-[#168C82] hover:text-white rounded-lg text-xs font-semibold transition-colors border border-[#168C82]/30 shadow-xs"
+                              title="Approve Staff Request"
+                            >
+                              <UserCheck className="w-3.5 h-3.5" />
+                              Approve
+                            </button>
+                          )}
                           <button 
                             onClick={() => openModal(staff)}
                             className="p-1.5 text-[#667085] hover:text-[#168C82] hover:bg-[#EEF9F7] rounded-md transition-colors"
@@ -253,23 +305,21 @@ const StaffManagement = () => {
                 <label className="block text-sm font-medium text-[#172033] mb-1">Full Name</label>
                 <input 
                   type="text" 
-                  required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g. Ramesh Kumar" 
                   className="w-full px-3 py-2 border border-[#E5E9E7] rounded-lg text-sm focus:border-[#168C82] focus:outline-none"
+                  required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-[#172033] mb-1">Email Address (Read-only)</label>
+                <label className="block text-sm font-medium text-[#172033] mb-1">Email (Read Only)</label>
                 <input 
                   type="email" 
-                  disabled
                   value={formData.email}
-                  className="w-full px-3 py-2 border border-[#E5E9E7] rounded-lg text-sm bg-gray-50 text-[#667085] cursor-not-allowed"
+                  disabled
+                  className="w-full px-3 py-2 border border-[#E5E9E7] rounded-lg text-sm bg-gray-50 text-[#667085]"
                 />
-                <p className="text-xs text-[#667085] mt-1">Email authentication is bound to user credentials.</p>
               </div>
 
               <div>
@@ -304,7 +354,8 @@ const StaffManagement = () => {
                     className="w-full px-3 py-2 border border-[#E5E9E7] rounded-lg text-sm focus:border-[#168C82] focus:outline-none"
                   >
                     <option value="active">Active</option>
-                    <option value="offline">Offline</option>
+                    <option value="pending">Pending Approval</option>
+                    <option value="offline">Offline / Inactive</option>
                     <option value="break">On Break</option>
                   </select>
                 </div>

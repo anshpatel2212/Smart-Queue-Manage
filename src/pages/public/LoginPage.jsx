@@ -72,7 +72,15 @@ const LoginPage = () => {
       }
 
       // Check account status: only active accounts permitted
-      if (profileData.status === 'inactive') {
+      const userStatus = String(profileData.status || 'active').trim().toLowerCase();
+      if (userStatus === 'pending') {
+        await signOut(auth);
+        setErrorMessage('Your staff account is pending administrator approval.');
+        setLoading(false);
+        return;
+      }
+
+      if (userStatus === 'inactive') {
         await signOut(auth);
         setErrorMessage('Your account is inactive. Please contact the administrator.');
         setLoading(false);
@@ -137,6 +145,22 @@ const LoginPage = () => {
       const { user: firebaseUser, profile: profileData } = await signInWithGoogle();
       
       const detectedRole = (profileData.role || '').toString().toLowerCase().trim();
+      const detectedStatus = String(profileData.status || 'active').trim().toLowerCase();
+
+      if (detectedStatus === 'pending') {
+        await signOut(auth);
+        setErrorMessage('Your staff account is pending administrator approval.');
+        setGoogleLoading(false);
+        return;
+      }
+
+      if (detectedStatus === 'inactive') {
+        await signOut(auth);
+        setErrorMessage('Your account is inactive. Please contact the administrator.');
+        setGoogleLoading(false);
+        return;
+      }
+
       if (!detectedRole || !['staff', 'admin'].includes(detectedRole)) {
         await signOut(auth);
         setErrorMessage('Access denied. This login portal is strictly for Staff and Admin accounts. Students do not require an account.');
@@ -327,6 +351,13 @@ const LoginPage = () => {
         </button>
 
         <p className="mt-8 text-center text-sm text-[#667085]">
+          Don't have a staff account?{' '}
+          <Link to="/staff-register" className="text-[#168C82] hover:underline font-semibold">
+            Request Staff Access &rarr;
+          </Link>
+        </p>
+
+        <p className="mt-3 text-center text-sm text-[#667085]">
           Students do not need an account.{' '}
           <Link to="/student" className="text-[#168C82] hover:underline font-semibold">
             Use Queue as Student &rarr;

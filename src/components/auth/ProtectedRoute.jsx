@@ -20,7 +20,12 @@ export const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   }
 
   // 3. Verify account active status
-  if (user.status !== 'active') {
+  const currentStatus = (profile?.status || user?.status || '').toString().toLowerCase().trim();
+  if (currentStatus === 'pending') {
+    logout().catch(() => {});
+    return <Navigate to="/login" state={{ error: 'Your staff account is pending administrator approval.' }} replace />;
+  }
+  if (currentStatus !== 'active') {
     logout().catch(() => {});
     return <Navigate to="/login" state={{ error: 'Your account is inactive. Please contact the administrator.' }} replace />;
   }

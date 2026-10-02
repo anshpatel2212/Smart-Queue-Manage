@@ -3,6 +3,7 @@ import {
   subscribeStaffMembers,
   updateStaffMember,
   toggleStaffStatus,
+  approveStaffMember,
   assignStaffDepartment
 } from '../services/staffService';
 import { subscribeDepartments } from '../services/departmentService';
@@ -56,6 +57,16 @@ export const useAdminStaff = () => {
     }
   };
 
+  const approveStaff = async (uid) => {
+    try {
+      setError(null);
+      return await approveStaffMember(uid);
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
   const assignDepartment = async (uid, deptId, counter = 1) => {
     try {
       setError(null);
@@ -73,6 +84,7 @@ export const useAdminStaff = () => {
     error,
     updateStaff,
     toggleStatus,
+    approveStaff,
     assignDepartment
   };
 };
